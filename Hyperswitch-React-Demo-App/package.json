@@ -14,7 +14,7 @@
     "prompt-sync": "^4.2.0",
     "react": "^18.0.2",
     "react-dom": "^18.0.2",
-    "react-router-dom": "^6.3.0",
+    "react-router-dom": "^6.30.3",
     "web-vitals": "^2.1.4"
   },
   "scripts": {
