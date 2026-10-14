@@ -1,0 +1,52 @@
+{
+  "repository": "mikashboks/hyperswitch-web",
+  "node_version": "22.22.3",
+  "java_version": null,
+  "tool_environment": {},
+  "node_units": [
+    {
+      "directory": ".",
+      "manager": "npm",
+      "lockfile": "package-lock.json"
+    }
+  ],
+  "required_tools": [],
+  "prepare_commands": [
+    [
+      "git",
+      "submodule",
+      "update",
+      "--init",
+      "--recursive",
+      "--",
+      "shared-code"
+    ]
+  ],
+  "install_commands": [],
+  "check_commands": [
+    {
+      "argv": [
+        "npm",
+        "exec",
+        "--no",
+        "--",
+        "rescript"
+      ],
+      "directory": "."
+    },
+    {
+      "argv": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "directory": "."
+    }
+  ],
+  "install_blockers": [],
+  "notes": [
+    "The published gitlink, not shared-code main, is the required revision. The laptop-specific Webpack launcher is separate.",
+    "Setup initializes only the declared shared-code dependency at its checked-in gitlink; it does not use --remote, change the parent branch or run the postinstall that changes Git hooks and installs an unlocked demo app."
+  ],
+  "hosted_runtime_validation": "pending"
+}
