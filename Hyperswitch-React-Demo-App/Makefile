@@ -17,3 +17,7 @@ build: Dockerfile
 push:
 	docker tag $(IMAGE_NAME):$(VERSION) $(NS)/$(IMAGE_NAME):$(VERSION)
 	docker push $(NS)/$(IMAGE_NAME):$(VERSION)
+# Local packaging only; release/push targets retain their existing behavior.
+.PHONY: build-local
+build-local:
+	mkb-test image-build --project payment-web-demo --family application --source "$(CURDIR)" --context "$(CURDIR)" --tag payment-web-demo:managed --platform linux/amd64 --check-entrypoint /bin/sh --check '["-c","node --version && test -s /app/package.json"]'
