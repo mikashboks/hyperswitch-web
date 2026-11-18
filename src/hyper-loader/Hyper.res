@@ -146,6 +146,14 @@ let make = (keys, options: option<JSON.t>, analyticsInfo: option<JSON.t>) => {
     | Object(json) => json->getString("profileId", "")
     | _ => ""
     }
+    let tenantId = switch keys->JSON.Classify.classify {
+    | Object(json) => json->getString("tenantId", "")
+    | _ => ""
+    }
+    let customerBackendUrl = ApiEndpoint.resolveInstanceEndPoint(
+      ~publishableKey,
+      ~customBackendUrl=options->getOptionsDict->getString("customBackendUrl", ""),
+    )
     let isPreloadEnabled =
       options
       ->getOptionsDict
@@ -330,33 +338,46 @@ let make = (keys, options: option<JSON.t>, analyticsInfo: option<JSON.t>) => {
         iframeRef.contents->Array.push(ref)->ignore
       }
 
-      let retrievePaymentIntentFn = async clientSecret => {
-        let uri = APIUtils.generateApiUrl(
-          RetrievePaymentIntent,
-          ~params={
-            clientSecret: Some(clientSecret),
-            publishableKey: Some(publishableKey),
-            customBackendBaseUrl: None,
-            paymentMethodId: None,
-            forceSync: None,
-            pollId: None,
-          },
-        )
+      let retrievePaymentIntentFn = async requestedClientSecret => {
+        if GlobalVars.sdkVersion == V2 {
+          await CustomerIntentRead.retrieve(
+            ~backendUrl=customerBackendUrl,
+            ~publishableKey,
+            ~profileId,
+            ~tenantId,
+            ~paymentId=paymentId.contents,
+            ~initializedClientSecret=clientSecret.contents,
+            ~clientSecret=requestedClientSecret,
+          )
+        } else {
+          let clientSecret = requestedClientSecret
+          let uri = APIUtils.generateApiUrl(
+            RetrievePaymentIntent,
+            ~params={
+              clientSecret: Some(clientSecret),
+              publishableKey: Some(publishableKey),
+              customBackendBaseUrl: None,
+              paymentMethodId: None,
+              forceSync: None,
+              pollId: None,
+            },
+          )
 
-        let onSuccess = data => [("paymentIntent", data)]->getJsonFromArrayOfJson
+          let onSuccess = data => [("paymentIntent", data)]->getJsonFromArrayOfJson
 
-        let onFailure = _ => JSON.Encode.null
+          let onFailure = _ => JSON.Encode.null
 
-        await fetchApiWithLogging(
-          uri,
-          ~eventName=RETRIEVE_CALL,
-          ~logger,
-          ~method=#GET,
-          ~customPodUri=None,
-          ~publishableKey=Some(publishableKey),
-          ~onSuccess,
-          ~onFailure,
-        )
+          await fetchApiWithLogging(
+            uri,
+            ~eventName=RETRIEVE_CALL,
+            ~logger,
+            ~method=#GET,
+            ~customPodUri=None,
+            ~publishableKey=Some(publishableKey),
+            ~onSuccess,
+            ~onFailure,
+          )
+        }
       }
 
       let confirmPaymentWrapper = (payload, isOneClick, result, ~isSdkButton=false) => {
@@ -505,6 +526,8 @@ let make = (keys, options: option<JSON.t>, analyticsInfo: option<JSON.t>) => {
           ~sdkSessionId=sessionID,
           ~publishableKey,
           ~profileId,
+          ~tenantId,
+          ~customerBackendUrl,
           ~clientSecret={clientSecretId},
           ~paymentId={paymentIdVal},
           ~logger=Some(logger),

@@ -18,6 +18,8 @@ let make = (
   ~sdkSessionId,
   ~publishableKey,
   ~profileId,
+  ~tenantId,
+  ~customerBackendUrl,
   ~logger: option<HyperLoggerTypes.loggerMake>,
   ~analyticsMetadata,
   ~customBackendUrl,
@@ -29,7 +31,8 @@ let make = (
     let savedPaymentElement = Dict.make()
     let localOptions = options->JSON.Decode.object->Option.getOr(Dict.make())
 
-    let endpoint = ApiEndpoint.getApiEndPoint(~publishableKey)
+    let endpoint =
+      GlobalVars.sdkVersion == V2 ? customerBackendUrl : ApiEndpoint.getApiEndPoint(~publishableKey)
     let redirect = ref("if_required")
 
     let appearance =
@@ -381,6 +384,8 @@ let make = (
           ("iframeId", selectorString->JSON.Encode.string),
           ("publishableKey", publishableKey->JSON.Encode.string),
           ("profileId", profileId->JSON.Encode.string),
+          ("tenantId", tenantId->JSON.Encode.string),
+          ("customerBackendUrl", customerBackendUrl->JSON.Encode.string),
           ("paymentId", paymentId->JSON.Encode.string),
           ("endpoint", endpoint->JSON.Encode.string),
           ("sdkSessionId", sdkSessionId->JSON.Encode.string),

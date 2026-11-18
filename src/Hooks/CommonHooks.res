@@ -9,6 +9,8 @@ type keys = {
   pmClientSecret?: string,
   publishableKey: string,
   profileId: string,
+  tenantId: string,
+  customerBackendUrl: string,
   iframeId: string,
   parentURL: string,
   sdkHandleOneClickConfirmPayment: bool,
@@ -113,6 +115,9 @@ let updateKeys = (dict, keyPair, setKeys) => {
         ...prev,
         publishableKey: dict->Utils.getString(key, valueStr),
       })
+    | "customerBackendUrl" =>
+      setKeys(prev => {...prev, customerBackendUrl: dict->Utils.getString(key, valueStr)})
+    | "tenantId" => setKeys(prev => {...prev, tenantId: dict->Utils.getString(key, valueStr)})
     | "profileId" =>
       setKeys(prev => {
         ...prev,
@@ -141,6 +146,8 @@ let defaultkeys = {
   clientSecret: None,
   publishableKey: "",
   profileId: "",
+  tenantId: "",
+  customerBackendUrl: "",
   paymentId: "",
   iframeId: "",
   parentURL: "*",

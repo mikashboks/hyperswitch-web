@@ -278,6 +278,8 @@ let rec intentCall = (
   ~isCallbackUsedVal=?,
   ~componentName="payment",
   ~redirectionFlags,
+  ~customerReviewContext=?,
+  ~onCustomerReview=?,
 ) => {
   open Promise
   let isConfirm = uri->String.includes("/confirm")
@@ -324,7 +326,7 @@ let rec intentCall = (
     url.searchParams.set("payment_id", clientSecret->Utils.getPaymentId)
     messageParentWindow([("confirmParams", confirmParam->anyTypeToJson)])
 
-    if !(res->Fetch.Response.ok) {
+    let presentExistingResponse = () => {
       res
       ->Fetch.Response.json
       ->then(data => {
@@ -446,6 +448,22 @@ let rec intentCall = (
           },
         )->then(resolve)
       })
+    }
+    if !(res->Fetch.Response.ok) {
+      CustomerReview.afterPrecondition(
+        ~statusCode,
+        ~uri,
+        ~context=isPaymentSession || fetchMethod != #POST ? None : customerReviewContext,
+        ~onReview=onCustomerReview,
+        ~fallback=presentExistingResponse,
+        ~onHandled=snapshot => {
+          let message =
+            snapshot.CustomerReview.review->Option.map(view => view.message)->Option.getOr("")
+          closePaymentLoaderIfAny()
+          postFailedSubmitResponse(~errortype="payment_under_review", ~message)
+          Promise.resolve(getFailedSubmitResponse(~errorType="payment_under_review", ~message))
+        },
+      )
     } else {
       res
       ->Fetch.Response.json
@@ -1123,6 +1141,9 @@ let usePaymentIntent = (optLogger, paymentType) => {
   let customPodUri = Recoil.useRecoilValueFromAtom(customPodUri)
   let paymentMethodList = Recoil.useRecoilValueFromAtom(paymentMethodList)
   let keys = Recoil.useRecoilValueFromAtom(keys)
+  let (reviewSnapshots, setReviewSnapshot) = Recoil.useRecoilState(customerReview)
+  let reviewSnapshotsRef = React.useRef(reviewSnapshots)
+  reviewSnapshotsRef.current = reviewSnapshots
   let isCallbackUsedVal = Recoil.useRecoilValueFromAtom(RecoilAtoms.isCompleteCallbackUsed)
   let redirectionFlags = Recoil.useRecoilValueFromAtom(redirectionFlagsAtom)
 
@@ -1136,7 +1157,21 @@ let usePaymentIntent = (optLogger, paymentType) => {
     ~intentCallback=_ => (),
     ~manualRetry=false,
   ) => {
+    // Existing submit listeners may retain an earlier callback. Consult the
+    // current scoped state instead of a stale pre-hold render's snapshot.
+    let reviewSnapshot = CustomerReview.lookup(
+      reviewSnapshotsRef.current,
+      CustomerReview.key(
+        ~backendUrl=keys.customerBackendUrl,
+        ~publishableKey=keys.publishableKey,
+        ~tenantId=keys.tenantId,
+        ~customPodUri,
+        ~paymentId=keys.paymentId,
+        ~profileId=keys.profileId,
+      ),
+    )
     switch keys.clientSecret {
+    | _ if GlobalVars.sdkVersion == V2 && reviewSnapshot->Option.isSome => ()
     | Some(clientSecret) =>
       let paymentIntentID = clientSecret->Utils.getPaymentId
       let headers = switch GlobalVars.sdkVersion {
@@ -1152,6 +1187,7 @@ let usePaymentIntent = (optLogger, paymentType) => {
           [
             authorizationHeader,
             ("X-profile-id", keys.profileId),
+            ...keys.tenantId != "" ? [("x-tenant-id", keys.tenantId)] : [],
             ...customPodUri != "" ? [("x-feature", customPodUri)] : [],
           ]
         }
@@ -1167,10 +1203,13 @@ let usePaymentIntent = (optLogger, paymentType) => {
       | V2 => []
       }
 
-      let endpoint = ApiEndpoint.getApiEndPoint(
-        ~publishableKey=confirmParam.publishableKey,
-        ~isConfirmCall=isThirdPartyFlow,
-      )
+      let endpoint =
+        GlobalVars.sdkVersion == V2 && keys.customerBackendUrl != ""
+          ? keys.customerBackendUrl
+          : ApiEndpoint.getApiEndPoint(
+              ~publishableKey=confirmParam.publishableKey,
+              ~isConfirmCall=isThirdPartyFlow,
+            )
       let path = switch GlobalVars.sdkVersion {
       | V1 => `payments/${paymentIntentID}/confirm`
       | V2 => `v2/payments/${keys.paymentId}/confirm-intent`
@@ -1242,6 +1281,21 @@ let usePaymentIntent = (optLogger, paymentType) => {
             ~customPodUri,
             ~sdkHandleOneClickConfirmPayment=keys.sdkHandleOneClickConfirmPayment,
             ~counter=0,
+            ~customerReviewContext=?GlobalVars.sdkVersion == V2 && keys.customerBackendUrl != ""
+              ? Some({
+                  CustomerReview.backendUrl: endpoint,
+                  publishableKey: keys.publishableKey,
+                  profileId: keys.profileId,
+                  tenantId: keys.tenantId,
+                  paymentId: keys.paymentId,
+                  clientSecret,
+                  customPodUri,
+                })
+              : None,
+            ~onCustomerReview=snapshot => {
+              setReviewSnapshot(previous => CustomerReview.remember(previous, snapshot))
+              setIsManualRetryEnabled(_ => false)
+            },
             ~isCallbackUsedVal,
             ~componentName,
             ~redirectionFlags,

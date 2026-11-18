@@ -1,6 +1,7 @@
 open RecoilAtomTypes
 
 let keys = Recoil.atom("keys", CommonHooks.defaultkeys)
+let customerReview = Recoil.atom("customerReview", (Dict.make(): Dict.t<CustomerReview.snapshot>))
 let configAtom = Recoil.atom("defaultRecoilConfig", CardTheme.defaultRecoilConfig)
 let portalNodes = Recoil.atom("portalNodes", PortalState.defaultDict)
 let elementOptions = Recoil.atom("elementOptions", ElementType.defaultOptions)

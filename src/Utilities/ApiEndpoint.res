@@ -26,3 +26,15 @@ let addCustomPodHeader = (arr: array<(string, string)>, ~customPodUri=?) => {
   }
   arr->Dict.fromArray
 }
+
+// A capability must stay bound to its owning Hyper instance, even if another
+// instance later changes the legacy mutable endpoint (including singleton reuse).
+let resolveInstanceEndPoint = (~publishableKey, ~customBackendUrl) => {
+  if customBackendUrl != "" {
+    customBackendUrl
+  } else if GlobalVars.isProd && publishableKey->String.startsWith("pk_snd_") {
+    "https://beta.hyperswitch.io/api"
+  } else {
+    GlobalVars.backendEndPoint
+  }
+}

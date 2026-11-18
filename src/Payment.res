@@ -12,7 +12,24 @@ let setUserError = message => {
 @react.component
 let make = (~paymentMode, ~integrateError, ~logger) => {
   let {localeString} = Recoil.useRecoilValueFromAtom(configAtom)
-  let {iframeId} = Recoil.useRecoilValueFromAtom(keys)
+  let paymentKeys = Recoil.useRecoilValueFromAtom(keys)
+  let {iframeId} = paymentKeys
+  let (reviewSnapshots, setReviewSnapshot) = Recoil.useRecoilState(customerReview)
+  let customPodUri = Recoil.useRecoilValueFromAtom(customPodUri)
+  let currentReview =
+    GlobalVars.sdkVersion == V2
+      ? CustomerReview.lookup(
+          reviewSnapshots,
+          CustomerReview.key(
+            ~backendUrl=paymentKeys.customerBackendUrl,
+            ~publishableKey=paymentKeys.publishableKey,
+            ~tenantId=paymentKeys.tenantId,
+            ~customPodUri,
+            ~paymentId=paymentKeys.paymentId,
+            ~profileId=paymentKeys.profileId,
+          ),
+        )
+      : None
   let isManualRetryEnabled = Recoil.useRecoilValueFromAtom(isManualRetryEnabled)
   let areRequiredFieldsValid = Recoil.useRecoilValueFromAtom(areRequiredFieldsValid)
   let (isFocus, setIsFocus) = React.useState(_ => false)
@@ -128,7 +145,34 @@ let make = (~paymentMode, ~integrateError, ~logger) => {
     handleMessage(handleDoSubmit, "")
   }, (cardNumber, cvcNumber, cardExpiry, isCVCValid, isExpiryValid, isCardValid))
 
-  if integrateError {
+  let checkReview = async () => {
+    switch paymentKeys.clientSecret {
+    | Some(clientSecret) =>
+      let refreshed = await CustomerReview.read({
+        backendUrl: paymentKeys.customerBackendUrl,
+        publishableKey: paymentKeys.publishableKey,
+        profileId: paymentKeys.profileId,
+        tenantId: paymentKeys.tenantId,
+        paymentId: paymentKeys.paymentId,
+        clientSecret,
+        customPodUri,
+      })
+      switch refreshed {
+      | Some(snapshot) => {
+          setReviewSnapshot(previous => CustomerReview.remember(previous, snapshot))
+          true
+        }
+      | None => false
+      }
+    | None => false
+    }
+  }
+  if currentReview->Option.isSome {
+    switch currentReview {
+    | Some(snapshot) => <CustomerReviewStatus key={snapshot.scopeKey} snapshot onCheck=checkReview />
+    | None => React.null
+    }
+  } else if integrateError {
     <ErrorOccured />
   } else {
     <PaymentTypeContext.provider value={paymentType: paymentType}>

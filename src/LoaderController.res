@@ -1,4 +1,6 @@
 open Utils
+@get external messageSource: Window.event => Window.window = "source"
+let acceptsCustomerBindingMessage = event => messageSource(event) == Window.windowParent
 @react.component
 let make = (~children, ~paymentMode, ~setIntegrateErrorError, ~logger, ~initTimestamp) => {
   open RecoilAtoms
@@ -323,11 +325,22 @@ let make = (~children, ~paymentMode, ~setIntegrateErrorError, ~logger, ~initTime
                 ("iframeId", "no-element"->JSON.Encode.string),
                 ("publishableKey", ""->JSON.Encode.string),
                 ("profileId", ""->JSON.Encode.string),
+                ("tenantId", ""->JSON.Encode.string),
+                ("customerBackendUrl", ""->JSON.Encode.string),
                 ("paymentId", ""->JSON.Encode.string),
                 ("parentURL", "*"->JSON.Encode.string),
                 ("sdkHandleOneClickConfirmPayment", true->JSON.Encode.bool),
               ]->Array.forEach(keyPair => {
-                dict->CommonHooks.updateKeys(keyPair, setKeys)
+                let (key, _) = keyPair
+
+                // Bind new capability-routing context only from the embedding
+                // parent. Other legacy message fields keep their existing path.
+                if (
+                  (key != "tenantId" && key != "customerBackendUrl") ||
+                    acceptsCustomerBindingMessage(ev)
+                ) {
+                  dict->CommonHooks.updateKeys(keyPair, setKeys)
+                }
               })
               let renderLatency = Date.now() -. initTimestamp
               logger.setLogInfo(
