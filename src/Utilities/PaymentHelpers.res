@@ -1171,7 +1171,19 @@ let usePaymentIntent = (optLogger, paymentType) => {
       ),
     )
     switch keys.clientSecret {
-    | _ if GlobalVars.sdkVersion == V2 && reviewSnapshot->Option.isSome => ()
+    | _ if GlobalVars.sdkVersion == V2 && reviewSnapshot->Option.isSome =>
+      let message =
+        reviewSnapshot
+        ->Option.flatMap(snapshot => snapshot.CustomerReview.review)
+        ->Option.mapOr("Check this payment's latest status before paying again.", review =>
+          review.message
+        )
+      let errortype =
+        reviewSnapshot->Option.flatMap(snapshot => snapshot.CustomerReview.review)->Option.isSome
+          ? "payment_under_review"
+          : "payment_status_requires_check"
+      closePaymentLoaderIfAny()
+      postFailedSubmitResponse(~errortype, ~message)
     | Some(clientSecret) =>
       let paymentIntentID = clientSecret->Utils.getPaymentId
       let headers = switch GlobalVars.sdkVersion {

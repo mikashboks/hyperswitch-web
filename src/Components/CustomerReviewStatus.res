@@ -41,6 +41,7 @@ let make = (~snapshot: CustomerReview.snapshot, ~onCheck: unit => promise<bool>)
     setUnavailable(_ => !refreshed)
     setChecking(_ => false)
   }
+  let checkedAt = snapshot.review->Option.mapOr(snapshot.checkedAt, review => review.asOf)
   <section role="status" ariaLive=#polite ariaAtomic=true className="p-4 flex flex-col gap-3">
     <h2 className="font-semibold">
       {React.string(snapshot.review->Option.isSome ? "Payment review" : "Payment status updated")}
@@ -49,18 +50,10 @@ let make = (~snapshot: CustomerReview.snapshot, ~onCheck: unit => promise<bool>)
     | Some(review) =>
       <>
         <p> {React.string(review.message)} </p>
-        <p>
-          {React.string("Last checked: ")}
-          <time dateTime={review.asOf}>
-            {React.string(readableTime(~locale=localeString.locale, review.asOf))}
-          </time>
-        </p>
       </>
     | None =>
       <>
-        <p>
-          {React.string(`Current payment status: ${snapshot.status->String.replaceAll("_", " ")}.`)}
-        </p>
+        <p> {React.string(CustomerReview.statusMessage(snapshot.status))} </p>
         <p>
           {React.string(
             "Check this payment's status before paying again. Contact support if you need help with this payment.",
@@ -68,6 +61,12 @@ let make = (~snapshot: CustomerReview.snapshot, ~onCheck: unit => promise<bool>)
         </p>
       </>
     }}
+    <p>
+      {React.string("Last checked: ")}
+      <time dateTime={checkedAt}>
+        {React.string(readableTime(~locale=localeString.locale, checkedAt))}
+      </time>
+    </p>
     {unavailable
       ? <p role="alert">
           {React.string(

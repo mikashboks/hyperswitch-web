@@ -14,6 +14,7 @@ type snapshot = {
   paymentId: string,
   profileId: string,
   status: string,
+  checkedAt: string,
   review: option<review>,
 }
 let key = (~backendUrl, ~publishableKey, ~tenantId, ~customPodUri, ~paymentId, ~profileId) =>
@@ -45,8 +46,36 @@ let knownStatus = status =>
     "requires_capture",
     "partially_captured",
     "partially_captured_and_capturable",
+    "partially_authorized_and_requires_capture",
+    "partially_captured_and_processing",
+    "cancelled_post_capture",
+    "conflicted",
+    "expired",
     "review",
   ]->Array.includes(status)
+
+// These messages describe the router status only; no refund, available balance,
+// destination credit, or permission to pay again can be inferred from it.
+let statusMessage = status =>
+  switch status {
+  | "succeeded" => "This payment succeeded."
+  | "failed" => "This payment failed. This does not confirm whether money was taken or returned."
+  | "cancelled"
+  | "cancelled_post_capture" => "This payment was cancelled. This does not confirm that money has been returned or is available."
+  | "processing" => "Your payment is still being processed."
+  | "requires_customer_action" => "This payment needs another step from you. Contact the merchant or support to check the existing payment."
+  | "requires_merchant_action" => "This payment needs a check by the merchant."
+  | "requires_payment_method" => "This payment needs a payment method. Contact the merchant or support before continuing."
+  | "requires_confirmation" => "This payment is waiting for confirmation."
+  | "requires_capture" => "This payment is authorized and waiting for the merchant to collect it."
+  | "partially_captured" => "Only part of this payment was collected. Contact the merchant or support to check the amount."
+  | "partially_captured_and_capturable" => "Part of this payment was collected. The merchant may still collect the rest."
+  | "partially_authorized_and_requires_capture" => "Part of this payment is authorized and waiting for the merchant to collect it."
+  | "partially_captured_and_processing" => "Part of this payment was collected. The rest is still being processed."
+  | "expired" => "This payment expired before it could be collected. This does not confirm that reserved money is available."
+  | "conflicted" => "This payment has conflicting amount or currency records. Contact support to check it before paying again."
+  | _ => "We cannot confirm this payment's outcome. Check this payment or contact support before paying again."
+  }
 
 let parse = (result, context: context) => {
   let intent =
@@ -97,6 +126,7 @@ let parse = (result, context: context) => {
         paymentId: context.paymentId,
         profileId: context.profileId,
         status,
+        checkedAt: Js.Date.make()->Js.Date.toISOString,
         review,
       })
     }

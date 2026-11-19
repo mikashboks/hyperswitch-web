@@ -18,7 +18,8 @@ function SubmitProbe(){
   React.useEffect(()=>{
     window.staleSubmit=submit;
     window.setCustomerLocale=locale=>setConfig(previous=>({...previous,localeString:{...previous.localeString,locale}}));
-    window.pinScopedReview=()=>setViews(previous=>CustomerReview.remember(previous,{scopeKey:key,paymentId:'pay_a',profileId:'profile_a',status:'review',review:{state:'under_review',message:'fixture',asOf:'2026-11-18T00:00:00Z'}}));
+    window.pinScopedProcessing=()=>setViews(previous=>CustomerReview.remember(previous,{scopeKey:key,paymentId:'pay_a',profileId:'profile_a',status:'processing',checkedAt:new Date().toISOString()}));
+    window.pinScopedReview=()=>setViews(previous=>CustomerReview.remember(previous,{scopeKey:key,paymentId:'pay_a',profileId:'profile_a',status:'review',checkedAt:'2026-11-18T00:00:00Z',review:{state:'under_review',message:'fixture',asOf:'2026-11-18T00:00:00Z'}}));
   },[]);
   React.useEffect(()=>{window.probeRendered=!!CustomerReview.lookup(views,key);});
   return null;
