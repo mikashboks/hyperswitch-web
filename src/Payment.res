@@ -30,6 +30,8 @@ let make = (~paymentMode, ~integrateError, ~logger) => {
           ),
         )
       : None
+  let currentReviewRef = React.useRef(currentReview)
+  currentReviewRef.current = currentReview
   let isManualRetryEnabled = Recoil.useRecoilValueFromAtom(isManualRetryEnabled)
   let areRequiredFieldsValid = Recoil.useRecoilValueFromAtom(areRequiredFieldsValid)
   let (isFocus, setIsFocus) = React.useState(_ => false)
@@ -138,12 +140,22 @@ let make = (~paymentMode, ~integrateError, ~logger) => {
       let json = ev.data->safeParse
       let jsonDict = json->getDictFromJson
       let confirm = jsonDict->ConfirmType.itemToObjMapper
-      if confirm.doSubmit {
-        submitValue(ev, confirm.confirmParams)
+      let knownReview = currentReviewRef.current
+      if (
+        confirm.doSubmit ||
+        (knownReview->Option.isSome && jsonDict->getBool("oneClickDoSubmit", false))
+      ) {
+        if knownReview->Option.isSome {
+          // The nested payment-method form is no longer mounted. Complete the
+          // host's submit promise through the same guarded hook, with no payload.
+          intent(~bodyArr=[], ~confirmParam=confirm.confirmParams)
+        } else {
+          submitValue(ev, confirm.confirmParams)
+        }
       }
     }
     handleMessage(handleDoSubmit, "")
-  }, (cardNumber, cvcNumber, cardExpiry, isCVCValid, isExpiryValid, isCardValid))
+  }, (cardNumber, cvcNumber, cardExpiry, isCVCValid, isExpiryValid, isCardValid, currentReview))
 
   let checkReview = async () => {
     switch paymentKeys.clientSecret {
@@ -169,7 +181,8 @@ let make = (~paymentMode, ~integrateError, ~logger) => {
   }
   if currentReview->Option.isSome {
     switch currentReview {
-    | Some(snapshot) => <CustomerReviewStatus key={snapshot.scopeKey} snapshot onCheck=checkReview />
+    | Some(snapshot) =>
+      <CustomerReviewStatus key={snapshot.scopeKey} snapshot onCheck=checkReview />
     | None => React.null
     }
   } else if integrateError {

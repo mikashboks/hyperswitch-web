@@ -5,6 +5,8 @@ import * as CustomerReview from '../src/Utilities/CustomerReview.bs.js';
 import * as LoaderController from '../src/LoaderController.bs.js';
 import * as Hyper from '../src/hyper-loader/Hyper.bs.js';
 import * as Status from '../src/Components/CustomerReviewStatus.bs.js';
+import * as Payment from '../src/Payment.bs.js';
+import * as LoggerUtils from '../src/Utilities/LoggerUtils.bs.js';
 import {RecoilRoot,useRecoilState,useSetRecoilState} from 'recoil';
 import * as Atoms from '../src/Utilities/RecoilAtoms.bs.js';
 import * as CommonHooks from '../src/Hooks/CommonHooks.bs.js';
@@ -23,6 +25,11 @@ function SubmitProbe(){
   },[]);
   React.useEffect(()=>{window.probeRendered=!!CustomerReview.lookup(views,key);});
   return null;
+}
+function PaymentMountProbe(){
+  const [mode,setMode]=React.useState(null);
+  React.useEffect(()=>{window.mountPaymentElement=nextMode=>setMode(nextMode);},[]);
+  return mode ? React.createElement(Payment.make,{paymentMode:mode,integrateError:false,logger:LoggerUtils.defaultLoggerConfig}) : null;
 }
 function Fixture() {
   const [snapshot,setSnapshot]=React.useState();
@@ -53,4 +60,4 @@ window.customerReview=CustomerReview;
 window.fixtureContext=context;
 window.makeHyper=Hyper.make;
 window.acceptsCustomerBindingMessage=LoaderController.acceptsCustomerBindingMessage;
-createRoot(document.getElementById('app')).render(React.createElement(RecoilRoot,{initializeState:({set})=>set(Atoms.keys,{...CommonHooks.defaultkeys,...context,customerBackendUrl:context.backendUrl})},React.createElement(SubmitProbe),React.createElement(Fixture)));
+createRoot(document.getElementById('app')).render(React.createElement(RecoilRoot,{initializeState:({set})=>set(Atoms.keys,{...CommonHooks.defaultkeys,...context,customerBackendUrl:context.backendUrl})},React.createElement(SubmitProbe),React.createElement(PaymentMountProbe),React.createElement(Fixture)));
