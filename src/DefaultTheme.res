@@ -23,7 +23,7 @@ let default = {
   fontSizeXs: "10px",
   fontSize2Xs: "8px",
   fontSize3Xs: "6px",
-  colorSuccess: "",
+  colorSuccess: "#16875B",
   colorWarning: "",
   colorPrimaryText: "#5469d4",
   colorBackgroundText: "",
@@ -49,6 +49,7 @@ let default = {
   buttonTextFontWeight: "500",
   buttonBorderWidth: "0px",
   disabledFieldColor: "#F6F8FA",
+  inputFieldHeight: "48px",
 }
 let defaultRules = theme =>
   {
@@ -142,6 +143,12 @@ let defaultRules = theme =>
     ".TabIcon": {
       "transition": "color .1s ease",
     },
+    ".TabSelectionIcon": {
+      "bottom": "-6px",
+      "right": "-6px",
+      "border": `2px solid ${theme.colorBackground}`,
+      "borderRadius": "50%",
+    },
     ".Block": {
       "backgroundColor": theme.colorBackground,
       "borderRadius": theme.borderRadius,
@@ -182,6 +189,12 @@ let defaultRules = theme =>
     },
     ".AccordionItemIcon--selected": {
       "color": theme.colorPrimary,
+    },
+    ".AccordionItemSelectionIcon": {
+      "bottom": "-6px",
+      "right": "-6px",
+      "border": `2px solid ${theme.colorBackground}`,
+      "borderRadius": "50%",
     },
     ".PickerItem": {
       "backgroundColor": theme.colorBackground,

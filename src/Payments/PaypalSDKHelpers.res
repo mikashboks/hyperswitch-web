@@ -4,27 +4,33 @@ open TaxCalculation
 
 let loadPaypalSDK = (
   ~loggerState: HyperLoggerTypes.loggerMake,
+  ~parentOrigin,
   ~sdkHandleOneClickConfirmPayment as _,
-  ~buttonStyle,
+  ~buttonStyle: PaypalSDKTypes.style,
   ~iframeId,
   ~isManualRetryEnabled,
-  ~paymentMethodListValue,
+  ~paymentMethodListValue: PaymentMethodsRecord.paymentMethodList,
+  ~connectors,
   ~isGuestCustomer,
   ~postSessionTokens: PaymentHelpersTypes.paymentIntent,
   ~options: PaymentType.options,
   ~publishableKey,
-  ~paymentMethodTypes,
+  ~requiredFields: array<SuperpositionTypes.fieldConfig>,
   ~confirm: PaymentHelpersTypes.paymentIntent,
   ~completeAuthorize: PaymentHelpersTypes.completeAuthorize,
   ~handleCloseLoader,
   ~areOneClickWalletsRendered: (
-    RecoilAtoms.areOneClickWalletsRendered => RecoilAtoms.areOneClickWalletsRendered
+    JotaiAtoms.areOneClickWalletsRendered => JotaiAtoms.areOneClickWalletsRendered
   ) => unit,
   ~setIsCompleted,
   ~isCallbackUsedVal as _: bool,
   ~sdkHandleIsThere: bool,
   ~sessions: PaymentType.loadType,
   ~clientSecret,
+  ~isTestMode=false,
+  ~nonPiiAdderessData: PaymentUtils.nonPiiAdderessData,
+  ~sdkAuthorization,
+  ~emitter: SubscriptionEventHooks.emitter,
 ) => {
   open Promise
 
@@ -52,63 +58,85 @@ let loadPaypalSDK = (
     style: buttonStyle,
     fundingSource: paypal["FUNDING"]["PAYPAL"],
     createOrder: () => {
-      PaymentUtils.emitPaymentMethodInfo(~paymentMethod="wallet", ~paymentMethodType="paypal")
-      makeOneClickHandlerPromise(sdkHandleIsThere)->then(result => {
-        let result = result->JSON.Decode.bool->Option.getOr(false)
-        if result {
-          messageParentWindow([
-            ("fullscreen", true->JSON.Encode.bool),
-            ("param", "paymentloader"->JSON.Encode.string),
-            ("iframeId", iframeId->JSON.Encode.string),
-          ])
-          let (connectors, _) =
-            paymentMethodListValue->PaymentUtils.getConnectors(Wallets(Paypal(SDK)))
-          let body = PaymentBody.paypalSdkBody(~token="", ~connectors)
-          let modifiedPaymentBody = PaymentUtils.appendedCustomerAcceptance(
-            ~isGuestCustomer,
-            ~paymentType=paymentMethodListValue.payment_type,
-            ~body,
-          )
-          make((resolve, _) => {
-            if paypalNextAction == "post_session_tokens" {
-              postSessionTokens(
-                ~bodyArr=modifiedPaymentBody,
-                ~confirmParam={
-                  return_url: options.wallets.walletReturnUrl,
-                  publishableKey,
-                },
-                ~handleUserError=true,
-                ~intentCallback=val => {
-                  val
-                  ->getDictFromJson
-                  ->getDictFromDict("nextActionData")
-                  ->getString("order_id", "")
-                  ->resolve
-                },
-                ~manualRetry=isManualRetryEnabled,
-              )
-            } else {
-              confirm(
-                ~bodyArr=modifiedPaymentBody,
-                ~confirmParam={
-                  return_url: options.wallets.walletReturnUrl,
-                  publishableKey,
-                },
-                ~handleUserError=true,
-                ~intentCallback=val => val->getDictFromJson->getString("orderId", "")->resolve,
-                ~manualRetry=isManualRetryEnabled,
-              )
-            }
-          })
-        } else {
-          loggerState.setLogInfo(
-            ~value="Paypal SDK oneClickDoSubmit - false",
-            ~eventName=PAYPAL_SDK_FLOW,
-            ~paymentMethod="PAYPAL",
-          )
-          resolve("")
-        }
-      })
+      if isTestMode {
+        loggerState.setLogInfo(
+          ~value="Paypal SDK createOrder called in test mode - interaction disabled",
+          ~eventName=PAYPAL_SDK_FLOW,
+          ~paymentMethod="PAYPAL",
+        )
+        resolve("")
+      } else {
+        let {country, state, pinCode} = nonPiiAdderessData
+        PaymentUtils.emitPaymentMethodInfo(
+          ~paymentMethod="wallet",
+          ~paymentMethodType="paypal",
+          ~country,
+          ~state,
+          ~pinCode,
+        )
+        emitter.emitPaymentMethodStatus(
+          ~paymentMethod="wallet",
+          ~paymentMethodType="paypal",
+          ~isSavedPaymentMethod=false,
+          ~isOneClickWallet=true,
+        )
+        emitter.emitBillingAddress(~country, ~state, ~postalCode=pinCode)
+        makeOneClickHandlerPromise(sdkHandleIsThere, ~parentOrigin)->then(result => {
+          let result = result->JSON.Decode.bool->Option.getOr(false)
+          if result {
+            messageParentWindow([
+              ("fullscreen", true->JSON.Encode.bool),
+              ("param", "paymentloader"->JSON.Encode.string),
+              ("iframeId", iframeId->JSON.Encode.string),
+            ])
+            let body = PaymentBody.paypalSdkBody(~token="", ~connectors)
+            let modifiedPaymentBody = PaymentUtils.appendedCustomerAcceptance(
+              ~isGuestCustomer,
+              ~paymentType=paymentMethodListValue.payment_type,
+              ~body,
+              ~alwaysSend=options.alwaysSendCustomerAcceptance,
+            )
+            make((resolve, _) => {
+              if paypalNextAction == "post_session_tokens" {
+                postSessionTokens(
+                  ~bodyArr=modifiedPaymentBody,
+                  ~confirmParam={
+                    return_url: options.wallets.walletReturnUrl,
+                    publishableKey,
+                  },
+                  ~handleUserError=true,
+                  ~intentCallback=val => {
+                    val
+                    ->getDictFromJson
+                    ->getDictFromDict("nextActionData")
+                    ->getString("order_id", "")
+                    ->resolve
+                  },
+                  ~manualRetry=isManualRetryEnabled,
+                )
+              } else {
+                confirm(
+                  ~bodyArr=modifiedPaymentBody,
+                  ~confirmParam={
+                    return_url: options.wallets.walletReturnUrl,
+                    publishableKey,
+                  },
+                  ~handleUserError=true,
+                  ~intentCallback=val => val->getDictFromJson->getString("orderId", "")->resolve,
+                  ~manualRetry=isManualRetryEnabled,
+                )
+              }
+            })
+          } else {
+            loggerState.setLogInfo(
+              ~value="Paypal SDK oneClickDoSubmit - false",
+              ~eventName=PAYPAL_SDK_FLOW,
+              ~paymentMethod="PAYPAL",
+            )
+            resolve("")
+          }
+        })
+      }
     },
     onShippingAddressChange: data => {
       let isTaxCalculationEnabled = paymentMethodListValue.is_tax_calculation_enabled
@@ -134,6 +162,7 @@ let loadPaypalSDK = (
           ~clientSecret=clientSecret->Option.getOr(""),
           ~paymentMethodType,
           ~sessionId=data->getDictFromJson->Dict.get("orderID"),
+          ~sdkAuthorization,
         )
       } else {
         JSON.Encode.null->resolve
@@ -161,17 +190,16 @@ let loadPaypalSDK = (
           let details = purchaseUnit->paypalShippingDetails(payerDetails)
           let requiredFieldsBody = DynamicFieldsUtils.getPaypalRequiredFields(
             ~details,
-            ~paymentMethodTypes,
+            ~requiredFields,
           )
 
-          let (connectors, _) =
-            paymentMethodListValue->PaymentUtils.getConnectors(Wallets(Paypal(SDK)))
           let orderId = val->getDictFromJson->getString("id", "")
           let body = PaymentBody.paypalSdkBody(~token=orderId, ~connectors)
           let modifiedPaymentBody = PaymentUtils.appendedCustomerAcceptance(
             ~isGuestCustomer,
             ~paymentType=paymentMethodListValue.payment_type,
             ~body,
+            ~alwaysSend=options.alwaysSendCustomerAcceptance,
           )
 
           let bodyArr =
@@ -230,25 +258,27 @@ let loadPaypalSDK = (
 
 let loadBraintreePaypalSdk = (
   ~loggerState: HyperLoggerTypes.loggerMake,
+  ~parentOrigin,
   ~sdkHandleOneClickConfirmPayment,
   ~token,
-  ~buttonStyle,
+  ~buttonStyle: PaypalSDKTypes.style,
   ~iframeId,
-  ~paymentMethodListValue,
+  ~paymentMethodListValue: PaymentMethodsRecord.paymentMethodList,
+  ~connectors,
   ~isGuestCustomer,
   ~intent: PaymentHelpersTypes.paymentIntent,
   ~options: PaymentType.options,
   ~orderDetails,
   ~publishableKey,
-  ~paymentMethodTypes,
+  ~requiredFields: array<SuperpositionTypes.fieldConfig>,
   ~handleCloseLoader,
   ~areOneClickWalletsRendered: (
-    RecoilAtoms.areOneClickWalletsRendered => RecoilAtoms.areOneClickWalletsRendered
+    JotaiAtoms.areOneClickWalletsRendered => JotaiAtoms.areOneClickWalletsRendered
   ) => unit,
   ~isManualRetryEnabled,
 ) => {
   open Promise
-  makeOneClickHandlerPromise(sdkHandleOneClickConfirmPayment)
+  makeOneClickHandlerPromise(sdkHandleOneClickConfirmPayment, ~parentOrigin)
   ->then(result => {
     let result = result->JSON.Decode.bool->Option.getOr(false)
     if result {
@@ -286,15 +316,11 @@ let loadBraintreePaypalSdk = (
                       : paypalCheckoutInstance.tokenizePayment(
                           data,
                           (_err, payload) => {
-                            let (connectors, _) =
-                              paymentMethodListValue->PaymentUtils.getConnectors(
-                                Wallets(Paypal(SDK)),
-                              )
                             let body = PaymentBody.paypalSdkBody(~token=payload.nonce, ~connectors)
 
                             let requiredFieldsBody = DynamicFieldsUtils.getPaypalRequiredFields(
                               ~details=payload.details,
-                              ~paymentMethodTypes,
+                              ~requiredFields,
                             )
 
                             let paypalBody = body->mergeAndFlattenToTuples(requiredFieldsBody)
@@ -303,6 +329,7 @@ let loadBraintreePaypalSdk = (
                               ~isGuestCustomer,
                               ~paymentType=paymentMethodListValue.payment_type,
                               ~body=paypalBody,
+                              ~alwaysSend=options.alwaysSendCustomerAcceptance,
                             )
 
                             intent(

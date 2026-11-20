@@ -1,4 +1,4 @@
-open RecoilAtoms
+open JotaiAtoms
 
 @react.component
 let make = (
@@ -9,11 +9,10 @@ let make = (
   ~expiryYear,
 ) => {
   let (_, startTransition) = React.useTransition()
-  let loggerState = Recoil.useRecoilValueFromAtom(loggerAtom)
-  let {config, themeObj, localeString} = Recoil.useRecoilValueFromAtom(RecoilAtoms.configAtom)
+  let {config, themeObj, localeString} = Jotai.useAtomValue(JotaiAtoms.configAtom)
   let {innerLayout} = config.appearance
-  let setFullName = Recoil.useLoggedSetRecoilState(userFullName, "fullName", loggerState)
-  let setNickName = Recoil.useSetRecoilState(userCardNickName)
+  let setFullName = Jotai.useSetAtom(userFullName)
+  let setNickName = Jotai.useSetAtom(userCardNickName)
 
   let cardHolderName = switch paymentItem.paymentMethodData.card.cardHolderName {
   | Some(val) => val
@@ -39,7 +38,7 @@ let make = (
       minWidth: "150px",
       width: "100%",
       padding: "0 0 1rem 0",
-      borderBottom: managePaymentMethod === paymentItem.id
+      borderBottom: managePaymentMethod === paymentItem.paymentToken
         ? `1px solid ${themeObj.borderColor}`
         : "none",
       borderTop: "none",
@@ -82,7 +81,7 @@ let make = (
         />
       </div>
     </div>
-    <FullNamePaymentInput />
+    <FullNamePaymentInput customFieldName=Some(localeString.cardHolderName) />
     <NicknamePaymentInput />
   </div>
 }

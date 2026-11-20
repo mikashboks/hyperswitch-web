@@ -24,7 +24,7 @@ let soft = {
   fontSizeXs: "10px",
   fontSize2Xs: "8px",
   fontSize3Xs: "6px",
-  colorSuccess: "",
+  colorSuccess: "#16875B",
   colorWarning: "",
   colorPrimaryText: "#000000",
   colorBackgroundText: "#ffffffe0",
@@ -50,6 +50,7 @@ let soft = {
   buttonTextFontWeight: "500",
   buttonBorderWidth: "0px",
   disabledFieldColor: "#303031",
+  inputFieldHeight: "48px",
 }
 
 let softRules = theme =>
@@ -122,6 +123,12 @@ let softRules = theme =>
     ".TabIcon": {
       "transition": "color .1s ease",
     },
+    ".TabSelectionIcon": {
+      "bottom": "-6px",
+      "right": "-6px",
+      "border": `2px solid ${theme.colorBackground}`,
+      "borderRadius": "50%",
+    },
     ".Block": {
       "borderRadius": theme.borderRadius,
       "color": theme.colorTextSecondary,
@@ -170,6 +177,12 @@ let softRules = theme =>
     },
     ".AccordionItemIcon--selected": {
       "color": theme.colorPrimary,
+    },
+    ".AccordionItemSelectionIcon": {
+      "bottom": "-6px",
+      "right": "-6px",
+      "border": `2px solid ${theme.colorBackground}`,
+      "borderRadius": "50%",
     },
     ".PickerItem": {
       "borderRadius": theme.borderRadius,

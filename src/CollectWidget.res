@@ -1,7 +1,7 @@
 open CardUtils
 open PaymentMethodCollectTypes
 open PaymentMethodCollectUtils
-open RecoilAtoms
+open JotaiAtoms
 
 @react.component
 let make = (
@@ -11,16 +11,14 @@ let make = (
   ~handleSubmit,
   ~formLayout: formLayout,
 ) => {
-  // Recoil states
-  let {config, constantString, localeString} = Recoil.useRecoilValueFromAtom(configAtom)
-  let {enabledPaymentMethodsWithDynamicFields} = Recoil.useRecoilValueFromAtom(
-    paymentMethodCollectOptionAtom,
-  )
-  let (_, setPayoutDynamicFields) = Recoil.useRecoilState(payoutDynamicFieldsAtom)
-  let (formData, setFormData) = Recoil.useRecoilState(formDataAtom)
-  let (activePmt, _) = Recoil.useRecoilState(paymentMethodTypeAtom)
-  let (validityDict, setValidityDict) = Recoil.useRecoilState(validityDictAtom)
-  let paymentMethodListValue = Recoil.useRecoilValueFromAtom(PaymentUtils.paymentMethodListValue)
+  // Jotai state
+  let {config, constantString, localeString} = Jotai.useAtomValue(configAtom)
+  let {enabledPaymentMethodsWithDynamicFields} = Jotai.useAtomValue(paymentMethodCollectOptionAtom)
+  let setPayoutDynamicFields = Jotai.useSetAtom(payoutDynamicFieldsAtom)
+  let (formData, setFormData) = Jotai.useAtom(formDataAtom)
+  let activePmt = Jotai.useAtomValue(paymentMethodTypeAtom)
+  let (validityDict, setValidityDict) = Jotai.useAtom(validityDictAtom)
+  let paymentMethodListValue = Jotai.useAtomValue(PaymentUtils.paymentMethodListValue)
   let supportedCardBrands = React.useMemo(() => {
     paymentMethodListValue->PaymentUtils.getSupportedCardBrands
   }, [paymentMethodListValue])
@@ -90,9 +88,15 @@ let make = (
     // Empty string is valid (no error)
     | (_, _, "") => (true, "")
     | (PayoutMethodData(CardExpDate(_)), "number" | "tel", _) => {
-        let formattedExpiry = formatCardExpiryNumber(value)
-        if isExipryValid(formattedExpiry) {
+        let formattedExpiry = CardValidations.formatCardExpiryNumber(value)
+        let isCardExpiryValid = isExipryValid(formattedExpiry)
+        if isCardExpiryValid {
           handleInputFocus(~currentRef=cardExpRef, ~destinationRef=cardHolderRef)
+        }
+        if formattedExpiry->String.length == getPaymentMethodDataFieldMaxLength(key) {
+          setValidityDictVal("card.cardExp", Some(isCardExpiryValid))
+        } else {
+          setValidityDictVal("card.cardExp", Some(true))
         }
         (true, formattedExpiry)
       }
@@ -103,8 +107,19 @@ let make = (
           ->Option.getOr(""),
         )
         let formattedCardNumber = formatCardNumber(value, cardType)
-        if cardValid(clearSpaces(formattedCardNumber), getCardStringFromType(cardType)) {
+        let clearCardNumber = CardValidations.clearSpaces(formattedCardNumber)
+        let cardTypeStr = getCardStringFromType(cardType)
+        if focusCardValid(clearCardNumber, cardTypeStr) {
           handleInputFocus(~currentRef=cardNumberRef, ~destinationRef=cardExpRef)
+        }
+
+        if maxCardLength(cardTypeStr) == clearCardNumber->String.length {
+          setValidityDictVal(
+            "card.cardNumber",
+            calculateValidity(key, value, cardTypeStr, ~default=None),
+          )
+        } else {
+          setValidityDictVal("card.cardNumber", Some(true))
         }
         (true, formattedCardNumber)
       }
@@ -319,6 +334,8 @@ let make = (
         | (VenmoMobNumber, _) => PayoutMethodData(VenmoMobNumber)->renderInputTemplate
         // Pix
         | (PixKey, _) => PayoutMethodData(PixKey)->renderInputTemplate
+        // Interac
+        | (InteracEmail, _) => PayoutMethodData(InteracEmail)->renderInputTemplate
 
         // TODO: Add these later
         | (CardBrand, _)

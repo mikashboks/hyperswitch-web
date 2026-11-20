@@ -8,19 +8,169 @@ external writeText: string => promise<'a> = "writeText"
 
 let onCompleteDoThisUsed = ref(false)
 let isPaymentButtonHandlerProvided = ref(false)
+
+let currentOneClickHandler = ref((None: option<unit => Promise.t<unit>>))
+let oneClickSources: Dict.t<Types.event => bool> = Dict.make()
+
+let walletOneClickEventHandler = (logger: HyperLoggerTypes.loggerMake, event: Types.event) => {
+  open Promise
+  let json = try {
+    event.data->anyTypeToJson
+  } catch {
+  | _ => JSON.Encode.null
+  }
+
+  let dict = json->getDictFromJson
+  if dict->Dict.get("oneClickConfirmTriggered")->Option.isSome {
+    switch currentOneClickHandler.contents {
+    | Some(eH) => {
+        logger.setLogInfo(
+          ~value=`One click handler callback execution initiated`,
+          ~eventName=ONE_CLICK_HANDLER_CALLBACK,
+          ~logType=INFO,
+        )
+        eH()
+        ->then(_ => {
+          logger.setLogInfo(
+            ~value=`One click handler callback executed successfully`,
+            ~eventName=ONE_CLICK_HANDLER_CALLBACK,
+            ~logType=INFO,
+          )
+          let msg =
+            [
+              ("walletClickEvent", true->JSON.Encode.bool),
+              (
+                "walletClickRequestId",
+                dict->getJsonFromDict("walletClickRequestId", JSON.Encode.null),
+              ),
+            ]->Dict.fromArray
+          event.source->Window.postMessage(msg->JSON.Encode.object->JSON.stringify, event.origin)
+          resolve()
+        })
+        ->catch(_ => {
+          logger.setLogError(
+            ~value=`Error in one click handler callback`,
+            ~eventName=ONE_CLICK_HANDLER_CALLBACK,
+            ~logType=ERROR,
+          )
+          let msg =
+            [
+              ("walletClickEvent", false->JSON.Encode.bool),
+              (
+                "walletClickRequestId",
+                dict->getJsonFromDict("walletClickRequestId", JSON.Encode.null),
+              ),
+            ]->Dict.fromArray
+          event.source->Window.postMessage(msg->JSON.Encode.object->JSON.stringify, event.origin)
+          resolve()
+        })
+        ->ignore
+      }
+
+    | None => ()
+    }
+  }
+}
+
+let ensureWalletOneClickListener = (logger, ~ownerId, ~isTrustedMessage) => {
+  oneClickSources->Dict.set(ownerId, isTrustedMessage)
+  addSmartEventListener(
+    "message",
+    event => {
+      // The merchant callback is intentionally global. Retain each SDK
+      // owner's live sender check, and invoke the callback only once.
+      if oneClickSources->Dict.valuesToArray->Array.some(check => check(event)) {
+        walletOneClickEventHandler(logger, event)
+      }
+    },
+    "walletOneClickHandler",
+  )
+}
+
+// ─── Shared iframe HTML builder ────────────────────────────────────────────────
+// Produces the raw <iframe> HTML fragment used by the `mount` function.
+let buildIframeHtmlString = (~iframeId: string, ~iframeSrc: string, ~additionalStyle: string) =>
+  `<iframe
+   id="${iframeId}"
+   name="${iframeId}"
+   src="${iframeSrc}"
+   allow="payment *"
+   title="Orca Payment Element Frame"
+   sandbox="allow-scripts allow-popups allow-same-origin allow-forms"
+   style="border: 0px; ${additionalStyle} outline: none;"
+   width="100%"
+></iframe>`
+// Multi-instance support: rendezvous queues that pair handler-only instances
+// (C, created at React render time, calls on()) with mounting instances
+// (O, created in useEffect, calls mount()).
+//
+// React.StrictMode renders components twice and runs effects twice (cleanup +
+// re-run), so we CANNOT register at make() time (duplicates accumulate).
+// Instead we register lazily: mount() queues the selector, on() claims it.
+// Whichever arrives first enqueues; the second dequeues and completes the pair.
+
+// Selectors from mount() calls waiting for a matching on() call.
+let pendingMountSelectorsByType: Dict.t<array<string>> = Dict.make()
+// Refs from on() calls waiting for a matching mount() selector.
+let pendingOnRefsByType: Dict.t<array<ref<string>>> = Dict.make()
+
 let make = (
   componentType,
   options,
   setIframeRef,
   iframeRef,
   mountPostMessage,
+  ~appearance,
   ~isPaymentManagementElement=false,
-  ~redirectionFlags: RecoilAtomTypes.redirectionFlags,
+  ~animateResize=true,
+  ~redirectionFlags: JotaiAtomTypes.redirectionFlags,
+  ~sdkDomainUrl=ApiEndpoint.sdkDomainUrl,
+  ~logger: option<HyperLoggerTypes.loggerMake>,
+  ~confirmPayment: JSON.t => promise<JSON.t>,
+  ~isTrustedPaymentMessage: option<Types.event => bool>=?,
+  ~onFullscreenCreated: (Dom.element, JSON.t) => unit=(_, _) => (),
+  ~fieldName: option<string>=?,
+  ~surfaceFamily: option<string>=?,
+  ~groupId: option<string>=?,
 ) => {
   try {
+    let logger = logger->Option.getOr(LoggerUtils.defaultLoggerConfig)
     let mountId = ref("")
+    let localSelectorRef = ref("")
+    let mountedIframeRef = ref(Nullable.null)
+    let fullscreenIframeRef = ref(Nullable.null)
+    let iframeOrigin = URLModule.makeUrl(sdkDomainUrl).origin
+    let fullscreenOrigin = URLModule.makeUrl(ApiEndpoint.sdkDomainUrl).origin
+
+    let isFromFrame = (ev: Types.event, iframe, origin) =>
+      iframe
+      ->Nullable.toOption
+      ->Option.map(iframe =>
+        iframe->Window.Element.isConnected &&
+        ev.source === iframe->Window.contentWindow &&
+        ev.origin === origin
+      )
+      ->Option.getOr(false)
+
+    let isTrustedMessage = (ev: Types.event) => {
+      let trusted = switch isTrustedPaymentMessage {
+      | Some(check) => check(ev)
+      | None =>
+        isFromFrame(ev, mountedIframeRef.contents, iframeOrigin) ||
+        isFromFrame(ev, fullscreenIframeRef.contents, fullscreenOrigin)
+      }
+      trusted || (ev.source === window && ev.origin === Window.Location.origin)
+    }
+
+    // Unique per-instance ID to scope event listener names and prevent collisions.
+    let elementInstanceId = generateRandomString(8)
+
     let setPaymentIframeRef = ref => {
+      mountedIframeRef := ref
       setIframeRef(ref)
+      ref->Nullable.toOption->Option.forEach(frame =>
+        SdkMessageSources.register(~frame, ~origin=iframeOrigin)
+      )
     }
 
     let (elementIframeWrapperDivId, elementIframeId) = if isPaymentManagementElement {
@@ -35,51 +185,62 @@ let make = (
         true,
       )
 
-    let asyncWrapper = async fn => {
-      try {
-        await fn()
-      } catch {
-      | err => Console.error2("Async function call failure", err)
-      }
-    }
-
-    let currEventHandler = ref(Some(() => Promise.make((_, _) => {()})))
-    let walletOneClickEventHandler = (event: Types.event) => {
-      open Promise
-      let json = try {
-        event.data->anyTypeToJson
-      } catch {
-      | _ => JSON.Encode.null
-      }
-
-      let dict = json->getDictFromJson
-      if dict->Dict.get("oneClickConfirmTriggered")->Option.isSome {
-        switch currEventHandler.contents {
-        | Some(eH) =>
-          asyncWrapper(eH)
-          ->then(() => {
-            let msg = [("walletClickEvent", true->JSON.Encode.bool)]->Dict.fromArray
-            event.source->Window.sendPostMessage(msg)
-            resolve()
-          })
-          ->catch(_ => resolve())
-          ->ignore
-
-        | None => ()
-        }
-      }
-    }
-
-    Window.addEventListener("message", walletOneClickEventHandler)
-
-    let onSDKHandleClick = (eventHandler: option<unit => Promise.t<'a>>) => {
-      currEventHandler := eventHandler
+    let onSDKHandleClick = eventHandler => {
       if eventHandler->Option.isSome {
+        currentOneClickHandler := eventHandler
         isPaymentButtonHandlerProvided := true
       }
     }
 
     let on = (eventType, eventHandler) => {
+      // Multi-instance: if this C instance has no selector yet, try to claim
+      // a pending mount selector.  If none is available, register self in the
+      // pendingOnRefs queue so the next mount() can adopt us.
+      // Guard on "" prevents re-registration on StrictMode effect re-runs.
+      if componentType->Utils.canHaveMultipleInstances && localSelectorRef.contents === "" {
+        let mounts = pendingMountSelectorsByType->Dict.get(componentType)->Option.getOr([])
+        if mounts->Array.length > 0 {
+          let selector = mounts->Array.getUnsafe(0)
+          let remaining = mounts->Array.sliceToEnd(~start=1)
+          pendingMountSelectorsByType->Dict.set(componentType, remaining)
+          localSelectorRef := selector
+        } else {
+          // No mount yet — register ref for adoption when mount() comes.
+          let refs = pendingOnRefsByType->Dict.get(componentType)->Option.getOr([])
+
+          // Avoid duplicate registration (e.g. on() called twice on same instance).
+          if !(refs->Array.some(r => r === localSelectorRef)) {
+            refs->Array.push(localSelectorRef)->ignore
+            pendingOnRefsByType->Dict.set(componentType, refs)
+          }
+        }
+      }
+      let matchesInstance = (ev: Types.event) => {
+        // Multi-instance: match by elementType + iframeId so events route to the correct instance.
+        if componentType->Utils.canHaveMultipleInstances {
+          ev.data.elementType === componentType && ev.data.iframeId === localSelectorRef.contents
+        } else {
+          ev.data.elementType === componentType
+        }
+      }
+
+      // Subscription event helper: checks eventName in payload, then applies matchesInstance.
+      let addSubscriptionEventListener = (subscriptionEventName, activity) => {
+        addSmartEventListener(
+          "message",
+          (ev: Types.event) => {
+            let json = ev.data->anyTypeToJson
+            let name = json->getOptionalJsonFromJson("eventName")->getStringFromOptionalJson("")
+            if isTrustedMessage(ev) && name === subscriptionEventName && matchesInstance(ev) {
+              switch eventHandler {
+              | Some(eH) => eH(Some(sanitizeEventData(ev.data)))
+              | None => ()
+              }
+            }
+          },
+          activity,
+        )
+      }
       switch eventType->eventTypeMapper {
       | Escape =>
         addSmartEventListener(
@@ -87,12 +248,12 @@ let make = (
           (ev: Types.event) => {
             if ev.key === "Escape" {
               switch eventHandler {
-              | Some(eH) => eH(Some(ev.data))
+              | Some(eH) => eH(Some(sanitizeEventData(ev.data)))
               | None => ()
               }
             }
           },
-          "onEscape",
+          `onEscape-${componentType}-${elementInstanceId}`,
         )
       | CompleteDoThis =>
         if eventHandler->Option.isSome {
@@ -100,33 +261,76 @@ let make = (
             ev => ev.data.completeDoThis,
             eventHandler,
             CompleteDoThis,
-            "onCompleteDoThis",
+            `onCompleteDoThis-${componentType}-${elementInstanceId}`,
+            ~isTrustedMessage,
           )
         }
       | Change =>
         eventHandlerFunc(
-          ev => ev.data.elementType === componentType,
+          ev =>
+            !ev.data.focus &&
+            !ev.data.blur &&
+            !ev.data.ready &&
+            !ev.data.confirmTriggered &&
+            !ev.data.oneClickConfirmTriggered &&
+            matchesInstance(ev),
           eventHandler,
           Change,
-          "onChange",
+          `onChange-${componentType}-${elementInstanceId}`,
+          ~isTrustedMessage,
         )
-      | Click => eventHandlerFunc(ev => ev.data.clickTriggered, eventHandler, Click, "onClick")
-      | Ready => eventHandlerFunc(ev => ev.data.ready, eventHandler, Ready, "onReady")
-      | Focus => eventHandlerFunc(ev => ev.data.focus, eventHandler, Focus, "onFocus")
-      | Blur => eventHandlerFunc(ev => ev.data.blur, eventHandler, Blur, "onBlur")
+      | Click =>
+        eventHandlerFunc(
+          ev => ev.data.clickTriggered,
+          eventHandler,
+          Click,
+          `onClick-${componentType}-${elementInstanceId}`,
+          ~isTrustedMessage,
+        )
+      | Ready =>
+        eventHandlerFunc(
+          ev => ev.data.ready && matchesInstance(ev),
+          eventHandler,
+          Ready,
+          `onReady-${componentType}-${elementInstanceId}`,
+          ~isTrustedMessage,
+        )
+      | Focus =>
+        eventHandlerFunc(
+          ev => ev.data.focus && matchesInstance(ev),
+          eventHandler,
+          Focus,
+          `onFocus-${componentType}-${elementInstanceId}`,
+          ~isTrustedMessage,
+        )
+      | Blur =>
+        eventHandlerFunc(
+          ev => ev.data.blur && matchesInstance(ev),
+          eventHandler,
+          Blur,
+          `onBlur-${componentType}-${elementInstanceId}`,
+          ~isTrustedMessage,
+        )
       | ConfirmPayment =>
         eventHandlerFunc(
           ev => ev.data.confirmTriggered,
           eventHandler,
           ConfirmPayment,
-          "onHelpConfirmPayment",
+          `onHelpConfirmPayment-${componentType}-${elementInstanceId}`,
+          ~isTrustedMessage,
         )
       | OneClickConfirmPayment =>
         eventHandlerFunc(
           ev => ev.data.oneClickConfirmTriggered,
           eventHandler,
           OneClickConfirmPayment,
-          "onHelpOneClickConfirmPayment",
+          `onHelpOneClickConfirmPayment-${componentType}-${elementInstanceId}`,
+          ~isTrustedMessage,
+        )
+      | SurchargeInfo =>
+        addSubscriptionEventListener(
+          "surchargeInfo",
+          `onSurchargeInfo-${componentType}-${elementInstanceId}`,
         )
       | _ => ()
       }
@@ -135,26 +339,29 @@ let make = (
     let blur = () => {
       iframeRef->Array.forEach(iframe => {
         let message = [("doBlur", true->JSON.Encode.bool)]->Dict.fromArray
-        iframe->Window.iframePostMessage(message)
+        iframe->Window.iframePostMessage(message, ~targetOrigin=iframeOrigin)
       })
     }
 
     let focus = () => {
       iframeRef->Array.forEach(iframe => {
         let message = [("doFocus", true->JSON.Encode.bool)]->Dict.fromArray
-        iframe->Window.iframePostMessage(message)
+        iframe->Window.iframePostMessage(message, ~targetOrigin=iframeOrigin)
       })
     }
 
     let clear = () => {
       iframeRef->Array.forEach(iframe => {
         let message = [("doClearValues", true->JSON.Encode.bool)]->Dict.fromArray
-        iframe->Window.iframePostMessage(message)
+        iframe->Window.iframePostMessage(message, ~targetOrigin=iframeOrigin)
       })
     }
 
     let unmount = () => {
+      oneClickSources->Dict.delete(elementInstanceId)
       let id = mountId.contents
+      mountedIframeRef := Nullable.null
+      fullscreenIframeRef := Nullable.null
 
       let oElement = Window.querySelector(id)
       switch oElement->Nullable.toOption {
@@ -197,14 +404,35 @@ let make = (
             ("paymentElementsUpdate", true->JSON.Encode.bool),
             ("options", flatOption->JSON.Encode.object->unflattenObject->JSON.Encode.object),
           ]->Dict.fromArray
-        iframe->Window.iframePostMessage(message)
+        iframe->Window.iframePostMessage(message, ~targetOrigin=iframeOrigin)
       })
     }
 
     let mount = selector => {
+      ensureWalletOneClickListener(logger, ~ownerId=elementInstanceId, ~isTrustedMessage)
       mountId := selector
       let localSelectorArr = selector->String.split("#")
       let localSelectorString = localSelectorArr->Array.get(1)->Option.getOr("someString")
+      localSelectorRef := localSelectorString
+
+      // Multi-instance rendezvous: pair this mount with a waiting on() ref, or
+      // enqueue the selector so a future on() call can claim it.
+      if componentType->Utils.canHaveMultipleInstances {
+        let refs = pendingOnRefsByType->Dict.get(componentType)->Option.getOr([])
+        let emptyIdx = refs->Array.findIndex(r => r.contents === "")
+        if emptyIdx >= 0 {
+          // A C instance is already waiting — hand it the selector.
+          let siblingRef = refs->Array.getUnsafe(emptyIdx)
+          siblingRef := localSelectorString
+          let remaining = refs->Array.filterWithIndex((_, i) => i !== emptyIdx)
+          pendingOnRefsByType->Dict.set(componentType, remaining)
+        } else {
+          // No C instance waiting yet — enqueue for a future on() call.
+          let mounts = pendingMountSelectorsByType->Dict.get(componentType)->Option.getOr([])
+          mounts->Array.push(localSelectorString)->ignore
+          pendingMountSelectorsByType->Dict.set(componentType, mounts)
+        }
+      }
       let iframeHeightRef = ref(25.0)
       let currentClass = ref("base")
       let fullscreen = ref(false)
@@ -301,6 +529,7 @@ let make = (
 
           switch fullscreenElem->Nullable.toOption {
           | Some(ele) =>
+            fullscreenIframeRef := Nullable.null
             ele->Window.innerHTML("")
             let mainElement = Window.querySelector(
               `#orca-${elementIframeId}-iframeRef-${localSelectorString}`,
@@ -313,30 +542,39 @@ let make = (
               ? {
                   if iframeID == localSelectorString {
                     let handleFullScreenCallback = (ev: Types.event) => {
-                      let json = ev.data->anyTypeToJson
-                      let dict = json->Utils.getDictFromJson
-                      if dict->Dict.get("iframeMountedCallback")->Option.isSome {
-                        let fullScreenEle = Window.querySelector(`#orca-fullscreen`)
-                        fullScreenEle->Window.iframePostMessage(
-                          [
-                            ("fullScreenIframeMounted", true->JSON.Encode.bool),
-                            ("metadata", fullscreenMetadata.contents),
-                            ("options", options),
-                          ]->Dict.fromArray,
-                        )
-                      }
-                      if dict->Dict.get("driverMounted")->Option.isSome {
-                        mainElement->Window.iframePostMessage(
-                          [
-                            ("fullScreenIframeMounted", true->JSON.Encode.bool),
-                            ("metadata", fullscreenMetadata.contents),
-                            ("options", options),
-                          ]->Dict.fromArray,
-                        )
-                        let fullScreenEle = Window.querySelector(`#orca-fullscreen`)
-                        fullScreenEle->Window.iframePostMessage(
-                          [("metadata", fullscreenMetadata.contents)]->Dict.fromArray,
-                        )
+                      if isTrustedMessage(ev) {
+                        let json = ev.data->anyTypeToJson
+                        let dict = json->Utils.getDictFromJson
+                        if dict->Dict.get("iframeMountedCallback")->Option.isSome {
+                          let fullScreenEle = Window.querySelector(`#orca-fullscreen`)
+                          fullScreenEle->Window.iframePostMessage(
+                            [
+                              ("fullScreenIframeMounted", true->JSON.Encode.bool),
+                              ("metadata", fullscreenMetadata.contents),
+                              ("options", options),
+                              ("appearance", appearance),
+                            ]->Dict.fromArray,
+                            ~targetOrigin=fullscreenOrigin,
+                          )
+                        }
+                        if dict->Dict.get("driverMounted")->Option.isSome {
+                          mainElement->Window.iframePostMessage(
+                            [
+                              ("fullScreenIframeMounted", true->JSON.Encode.bool),
+                              ("metadata", fullscreenMetadata.contents),
+                              ("options", options),
+                            ]->Dict.fromArray,
+                            ~targetOrigin=iframeOrigin,
+                          )
+                          let fullScreenEle = Window.querySelector(`#orca-fullscreen`)
+                          fullScreenEle->Window.iframePostMessage(
+                            [
+                              ("fullScreenIframeMounted", true->JSON.Encode.bool),
+                              ("metadata", fullscreenMetadata.contents),
+                            ]->Dict.fromArray,
+                            ~targetOrigin=fullscreenOrigin,
+                          )
+                        }
                       }
                     }
                     addSmartEventListener(
@@ -344,7 +582,13 @@ let make = (
                       handleFullScreenCallback,
                       "onFullScreenCallback",
                     )
-                    ele->makeIframe(iframeURL)->ignore
+                    ele
+                    ->makeIframe(iframeURL, ~onCreate=iframe => {
+                      fullscreenIframeRef := Nullable.make(iframe)
+                      SdkMessageSources.register(~frame=iframe, ~origin=fullscreenOrigin)
+                      onFullscreenCreated(iframe, fullscreenMetadata.contents)
+                    })
+                    ->ignore
                   }
                 }
               : {
@@ -354,6 +598,7 @@ let make = (
                       ("fullScreenIframeMounted", false->JSON.Encode.bool),
                       ("options", options),
                     ]->Dict.fromArray,
+                    ~targetOrigin=iframeOrigin,
                   )
                 }
           | None => ()
@@ -368,39 +613,64 @@ let make = (
           )
         }
       }
-      addSmartEventListener("message", handle, `onMount-${componentType}`)
+      // Multi-instance elements need unique listener names per instance.
+      let eventListenerActivityName = if componentType->Utils.canHaveMultipleInstances {
+        `onMount-${componentType}-${localSelectorString}`
+      } else {
+        `onMount-${componentType}`
+      }
+      let handleIfTrusted = (ev: Types.event) => {
+        if isTrustedMessage(ev) {
+          handle(ev)
+        }
+      }
+      addSmartEventListener("message", handleIfTrusted, eventListenerActivityName)
 
       let oElement = Window.querySelector(selector)
       let classesBase = optionsDict->getClasses("base")
-      let additionalIframeStyle =
-        componentType->Utils.isOtherElements ? "height: 2rem;" : "height: 0;"
+      let additionalIframeStyle = switch (fieldName, componentType->Utils.isOtherElements) {
+      | (Some(_), _) =>
+        let inputFieldHeight =
+          optionsDict
+          ->getDictFromDict("appearance")
+          ->getDictFromDict("variables")
+          ->getString("inputFieldHeight", "48px")
+        `height: ${inputFieldHeight};`
+      | (None, true) => "height: 3rem;"
+      | (None, false) => "height: 0;"
+      }
       switch oElement->Nullable.toOption {
       | Some(elem) => {
+          let iframeElementId = `orca-${elementIframeId}-iframeRef-${localSelectorString}`
+          let appendParam = (url, key, value) =>
+            switch value {
+            | Some(v) => `${url}&${key}=${encodeURIComponent(v)}`
+            | None => url
+            }
+          let iframeSrc =
+            `${sdkDomainUrl}/index.html?componentName=${componentType}`
+            ->appendParam("fieldName", fieldName)
+            ->appendParam("surfaceFamily", surfaceFamily)
+            ->appendParam("groupId", groupId)
           let iframeDiv = `<div id="orca-${elementIframeWrapperDivId}-${localSelectorString}" style="height: auto; font-size: 0;" class="${componentType} ${currentClass.contents} ${classesBase}">
           <div id="orca-fullscreen-iframeRef-${localSelectorString}"></div>
-           <iframe
-           id ="orca-${elementIframeId}-iframeRef-${localSelectorString}"
-           name="orca-${elementIframeId}-iframeRef-${localSelectorString}"
-          src="${ApiEndpoint.sdkDomainUrl}/index.html?componentName=${componentType}"
-          allow="payment *"
-          title="Orca Payment Element Frame"
-          sandbox="allow-scripts allow-popups allow-same-origin allow-forms"
-          name="orca-payment"
-          style="border: 0px; ${additionalIframeStyle} outline: none;"
-          width="100%"
-        ></iframe>
-        </div>`
+          ${buildIframeHtmlString(
+              ~iframeId=iframeElementId,
+              ~iframeSrc,
+              ~additionalStyle=additionalIframeStyle,
+            )}
+          </div>`
           elem->Window.innerHTML(iframeDiv)
-          setPaymentIframeRef(
-            Window.querySelector(`#orca-${elementIframeId}-iframeRef-${localSelectorString}`),
-          )
+          setPaymentIframeRef(Window.querySelector(`#${iframeElementId}`))
 
-          let elem = Window.querySelector(
-            `#orca-${elementIframeId}-iframeRef-${localSelectorString}`,
-          )
+          let elem = Window.querySelector(`#${iframeElementId}`)
           switch elem->Nullable.toOption {
           | Some(ele) =>
-            ele->Window.style->Window.setTransition("height 0.35s ease 0s, opacity 0.4s ease 0.1s")
+            ele
+            ->Window.style
+            ->Window.setTransition(
+              animateResize ? "height 0.35s ease 0s, opacity 0.4s ease 0.1s" : "none",
+            )
           | None => ()
           }
         }
@@ -420,6 +690,7 @@ let make = (
       update,
       mount,
       onSDKHandleClick,
+      confirmPayment,
     }
   } catch {
   | e => {

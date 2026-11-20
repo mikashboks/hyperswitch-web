@@ -1,5 +1,7 @@
 type theme = Default | Brutal | Midnight | Soft | Charcoal | Bubblegum | NONE
 
+type colorScheme = Light | Auto | Dark
+
 type innerLayout = Spaced | Compressed
 
 type showLoader = Auto | Always | Never
@@ -7,6 +9,7 @@ type showLoader = Auto | Always | Never
 type mode =
   | Card
   | Payment
+  | PaymentMethodsSDK
   | CardNumberElement
   | CardExpiryElement
   | CardCVCElement
@@ -71,6 +74,7 @@ type themeClass = {
   buttonTextFontWeight: string,
   buttonBorderWidth: string,
   disabledFieldColor: string,
+  inputFieldHeight: string,
 }
 type appearance = {
   theme: theme,
@@ -79,6 +83,7 @@ type appearance = {
   rules: JSON.t,
   labels: label,
   innerLayout: innerLayout,
+  colorScheme: colorScheme,
 }
 type fonts = {
   cssSrc: string,
@@ -89,18 +94,18 @@ type fonts = {
 type configClass = {
   appearance: appearance,
   locale: string,
-  ephemeralKey: string,
-  pmClientSecret: string,
   pmSessionId: string,
   clientSecret: string,
   fonts: array<fonts>,
   loader: showLoader,
+  sdkAuthorization: string,
 }
 
 let getPaymentMode = val => {
   switch val {
   | "card" => Card
   | "payment" => Payment
+  | "paymentMethodsSDK" => PaymentMethodsSDK
   | "cardNumber" => CardNumberElement
   | "cardExpiry" => CardExpiryElement
   | "cardCvc" => CardCVCElement
@@ -114,6 +119,27 @@ let getPaymentMode = val => {
   | "paze" => PazeElement
   | "paymentMethodsManagement" => PaymentMethodsManagement
   | _ => NONE
+  }
+}
+
+let getPaymentModeToString = val => {
+  switch val {
+  | Card => "card"
+  | Payment => "payment"
+  | PaymentMethodsSDK => "paymentMethodsSDK"
+  | CardNumberElement => "cardNumber"
+  | CardExpiryElement => "cardExpiry"
+  | CardCVCElement => "cardCvc"
+  | GooglePayElement => "googlePay"
+  | PayPalElement => "payPal"
+  | ApplePayElement => "applePay"
+  | PaymentMethodCollectElement => "paymentMethodCollect"
+  | SamsungPayElement => "samsungPay"
+  | KlarnaElement => "klarna"
+  | ExpressCheckoutElement => "expressCheckout"
+  | PazeElement => "paze"
+  | PaymentMethodsManagement => "paymentMethodsManagement"
+  | NONE => "none"
   }
 }
 

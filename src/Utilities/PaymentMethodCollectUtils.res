@@ -68,6 +68,7 @@ let setNestedValue = (dict: t, key: string, value: JSON.t): unit => {
 let getPaymentMethodForPmt = (paymentMethodType: paymentMethodType): paymentMethod => {
   switch paymentMethodType {
   | Card(_) => Card
+  | BankRedirect(_) => BankRedirect
   | BankTransfer(_) => BankTransfer
   | Wallet(_) => Wallet
   }
@@ -76,6 +77,7 @@ let getPaymentMethodForPmt = (paymentMethodType: paymentMethodType): paymentMeth
 let getPaymentMethod = (paymentMethod: paymentMethod): string => {
   switch paymentMethod {
   | Card => "card"
+  | BankRedirect => "bank_redirect"
   | BankTransfer => "bank_transfer"
   | Wallet => "wallet"
   }
@@ -84,6 +86,7 @@ let getPaymentMethod = (paymentMethod: paymentMethod): string => {
 let getPaymentMethodForPayoutsConfirm = (paymentMethod: paymentMethod): string => {
   switch paymentMethod {
   | Card => "card"
+  | BankRedirect => "bank_redirect"
   | BankTransfer => "bank"
   | Wallet => "wallet"
   }
@@ -101,12 +104,17 @@ let getPaymentMethodType = (paymentMethodType: paymentMethodType): string => {
     | ACH => "ach"
     | Bacs => "bacs"
     | Pix => "pix"
-    | Sepa => "sepa"
+    | Sepa => "sepa_bank_transfer"
     }
   | Wallet(walletType) =>
     switch walletType {
     | Paypal => "paypal"
     | Venmo => "venmo"
+    | Momo => "momo"
+    }
+  | BankRedirect(bankRedirectType) =>
+    switch bankRedirectType {
+    | Interac => "interac"
     }
   }
 }
@@ -114,6 +122,7 @@ let getPaymentMethodType = (paymentMethodType: paymentMethodType): string => {
 let getPaymentMethodLabel = (paymentMethod: paymentMethod): string => {
   switch paymentMethod {
   | Card => "Card"
+  | BankRedirect
   | BankTransfer => "Bank"
   | Wallet => "Wallet"
   }
@@ -137,6 +146,11 @@ let getPaymentMethodTypeLabel = (paymentMethodType: paymentMethodType): string =
     switch walletType {
     | Paypal => "PayPal"
     | Venmo => "Venmo"
+    | Momo => "Mobile money"
+    }
+  | BankRedirect(bankRedirectType) =>
+    switch bankRedirectType {
+    | Interac => "Interac"
     }
   }
 }
@@ -168,6 +182,7 @@ let getPaymentMethodDataFieldKey = (key): string =>
     | PixBankAccountNumber => "pix.account"
     | PixBankName => "pix.bankName"
     | VenmoMobNumber => "venmo.phoneNumber"
+    | InteracEmail => "interac.email"
     }
   | BillingAddress(b) =>
     switch b {
@@ -198,7 +213,9 @@ let getPaymentMethodDataFieldLabel = (key, localeString: LocaleStringTypes.local
   | PayoutMethodData(SepaBic) => localeString.formFieldSepaBicLabel
   | PayoutMethodData(PixKey) => localeString.formFieldPixIdLabel
   | PayoutMethodData(PixBankAccountNumber) => localeString.formFieldBankAccountNumberLabel
-  | PayoutMethodData(PaypalMail) => localeString.emailLabel
+  | PayoutMethodData(InteracEmail)
+  | PayoutMethodData(PaypalMail) =>
+    localeString.emailLabel
   | PayoutMethodData(PaypalMobNumber) | PayoutMethodData(VenmoMobNumber) =>
     localeString.formFieldPhoneNumberLabel
   | PayoutMethodData(SepaCountryCode) => localeString.formFieldCountryCodeLabel
@@ -216,9 +233,9 @@ let getPaymentMethodDataFieldLabel = (key, localeString: LocaleStringTypes.local
   // Address details
   | BillingAddress(Email) => localeString.emailLabel
   | BillingAddress(FullName(_)) => localeString.fullNameLabel
-  | BillingAddress(CountryCode) => localeString.countryLabel
+  | BillingAddress(CountryCode) => localeString.formFieldCountryCodeRequiredLabel
   | BillingAddress(PhoneNumber) => localeString.formFieldPhoneNumberLabel
-  | BillingAddress(PhoneCountryCode) => localeString.formFieldCountryCodeLabel
+  | BillingAddress(PhoneCountryCode) => localeString.formFieldCountryCodeRequiredLabel
   | BillingAddress(AddressLine1) => localeString.line1Label
   | BillingAddress(AddressLine2) => localeString.line2Label
   | BillingAddress(AddressCity) => localeString.cityLabel
@@ -254,12 +271,23 @@ let getPaymentMethodDataFieldPlaceholder = (
   | PayoutMethodData(BacsBankCity)
   | PayoutMethodData(SepaBankCity) =>
     locale.formFieldBankCityPlaceholder
-  | PayoutMethodData(PaypalMail) => locale.formFieldEmailPlaceholder
+  | PayoutMethodData(InteracEmail)
+  | PayoutMethodData(PaypalMail) =>
+    locale.formFieldEmailPlaceholder
   | PayoutMethodData(PaypalMobNumber) | PayoutMethodData(VenmoMobNumber) =>
     locale.formFieldPhoneNumberPlaceholder
   | PayoutMethodData(CardBrand) => "Misc."
-  // TODO: handle billing address locales this
-  | _ => ""
+  | BillingAddress(AddressCity) => locale.cityLabel
+  | BillingAddress(AddressPincode) => locale.postalCodeLabel
+  | BillingAddress(AddressLine1) => locale.line1Placeholder
+  | BillingAddress(AddressLine2) => locale.line2Placeholder
+  | BillingAddress(AddressState) => locale.stateLabel
+  | BillingAddress(CountryCode) => locale.formFieldCountryCodeRequiredLabel
+  | BillingAddress(FullName(_)) => locale.fullNamePlaceholder
+  | BillingAddress(AddressCountry(_)) => locale.countryLabel
+  | BillingAddress(PhoneNumber) => locale.formFieldPhoneNumberPlaceholder
+  | BillingAddress(PhoneCountryCode) => locale.formFieldCountryCodeRequiredLabel
+  | BillingAddress(Email) => locale.formFieldEmailPlaceholder
   }
 }
 
@@ -268,10 +296,10 @@ let getPaymentMethodDataFieldMaxLength = (key): int =>
   | PayoutMethodData(CardNumber) => 23
   | PayoutMethodData(CardExpDate(_)) => 7
   | PayoutMethodData(ACHRoutingNumber) => 9
-  | PayoutMethodData(ACHAccountNumber) => 12
+  | PayoutMethodData(ACHAccountNumber) => 17
   | PayoutMethodData(BacsSortCode) => 6
   | PayoutMethodData(BacsAccountNumber) => 18
-  | PayoutMethodData(SepaBic) => 8
+  | PayoutMethodData(SepaBic) => 11
   | PayoutMethodData(SepaIban) => 34
   | _ => 32
   }
@@ -284,19 +312,18 @@ let getPaymentMethodDataFieldCharacterPattern = (key): option<Js.Re.t> =>
   | PayoutMethodData(BacsSortCode) => Some(%re("/^\d{1,6}$/"))
   | PayoutMethodData(CardHolderName) => Some(%re("/^([a-zA-Z]| ){1,32}$/"))
   | PayoutMethodData(CardNumber) => Some(%re("/^\d{1,18}$/"))
-  | PayoutMethodData(PaypalMail) =>
-    Some(%re("/^[a-zA-Z0-9._%+-]*[a-zA-Z0-9._%+-]*@[a-zA-Z0-9.-]*$/"))
   | PayoutMethodData(PaypalMobNumber) => Some(%re("/^[0-9]{1,12}$/"))
-  | PayoutMethodData(SepaBic) => Some(%re("/^([A-Z0-9]| ){1,8}$/"))
+  | PayoutMethodData(SepaBic) => Some(%re("/^([A-Z0-9]| ){1,11}$/"))
   | PayoutMethodData(SepaIban) => Some(%re("/^([A-Z0-9]| ){1,34}$/"))
   | BillingAddress(AddressPincode) => Some(%re("/^([0-9A-Z]| ){1,10}$/"))
   | BillingAddress(PhoneNumber) => Some(%re("/^[0-9]{1,12}$/"))
-  | BillingAddress(PhoneCountryCode) => Some(%re("/^[0-9]{1,2}$/"))
+  | BillingAddress(PhoneCountryCode) => Some(%re("/^[0-9]{1,3}$/"))
   | _ => None
   }
 
 let getPaymentMethodDataFieldInputType = (key): string =>
   switch key {
+  | PayoutMethodData(InteracEmail)
   | PayoutMethodData(PaypalMail) => "email"
   | PayoutMethodData(ACHAccountNumber)
   | PayoutMethodData(ACHRoutingNumber)
@@ -312,6 +339,7 @@ let getPaymentMethodDataFieldInputType = (key): string =>
 let getPayoutImageSource = (payoutStatus: payoutStatus): string => {
   switch payoutStatus {
   | Success => "https://live.hyperswitch.io/payment-link-assets/success.png"
+  | Unconfirmed
   | Initiated
   | Pending
   | RequiresFulfillment => "https://live.hyperswitch.io/payment-link-assets/pending.png"
@@ -332,6 +360,7 @@ let getPayoutReadableStatus = (
   localeString: LocaleStringTypes.localeStrings,
 ): string =>
   switch payoutStatus {
+  | Unconfirmed => "Payout status unconfirmed"
   | Success => localeString.payoutStatusSuccessText
   | Initiated
   | Pending
@@ -353,7 +382,7 @@ let getPayoutStatusString = (payoutStatus: payoutStatus): string =>
   switch payoutStatus {
   | Success => "success"
   | Initiated => "initiated"
-  | Pending => "pending"
+  | Unconfirmed | Pending => "pending"
   | RequiresFulfillment => "requires_fulfillment"
   | Cancelled => "expired"
   | Failed => "failed"
@@ -371,6 +400,7 @@ let getPayoutStatusMessage = (
   localeString: LocaleStringTypes.localeStrings,
 ): string =>
   switch payoutStatus {
+  | Unconfirmed => "We could not confirm the payout result. Check its status with the sender before trying again."
   | Success => localeString.payoutStatusSuccessMessage
   | Initiated
   | Pending
@@ -400,7 +430,63 @@ let getPaymentMethodDataErrorString = (
   | (PayoutMethodData(CardExpDate(_)), false) => localeString.inCompleteExpiryErrorText
   | (PayoutMethodData(CardExpDate(_)), true) => localeString.pastExpiryErrorText
   | (PayoutMethodData(ACHRoutingNumber), false) => localeString.formFieldInvalidRoutingNumber
-  | (BillingAddress(AddressState), _) => "Invalid state"
+  | (PayoutMethodData(BacsSortCode), _) =>
+    if value->String.trim->String.length === 0 {
+      localeString.sortCodeText->localeString.nameEmptyText
+    } else {
+      localeString.sortCodeInvalidText
+    }
+  | (PayoutMethodData(BacsAccountNumber), _) =>
+    if value->String.trim->String.length === 0 {
+      localeString.accountNumberText->localeString.nameEmptyText
+    } else {
+      localeString.accountNumberInvalidText
+    }
+  | (PayoutMethodData(InteracEmail), _) =>
+    if value->String.trim->String.length === 0 {
+      localeString.emailEmptyText
+    } else {
+      localeString.emailInvalidText
+    }
+  | (PayoutMethodData(CardHolderName), _) =>
+    if value->String.trim->String.length === 0 {
+      localeString.cardHolderName->localeString.nameEmptyText
+    } else {
+      localeString.cardHolderName->localeString.completeNameEmptyText
+    }
+  | (PayoutMethodData(SepaIban), _) =>
+    if value->String.trim->String.length === 0 {
+      localeString.ibanEmptyText
+    } else {
+      localeString.ibanInvalidText
+    }
+  | (BillingAddress(AddressState), _) => localeString.stateEmptyText
+  | (BillingAddress(AddressCity), _) => localeString.cityEmptyText
+  | (BillingAddress(AddressPincode), _) =>
+    if value->String.trim->String.length === 0 {
+      localeString.postalCodeEmptyText
+    } else {
+      localeString.postalCodeInvalidText
+    }
+  | (BillingAddress(PhoneNumber), _) =>
+    localeString.formFieldPhoneNumberLabel->localeString.nameEmptyText
+  | (BillingAddress(PhoneCountryCode), _) =>
+    localeString.formFieldCountryCodeRequiredLabel->localeString.nameEmptyText
+  | (BillingAddress(CountryCode), _) =>
+    localeString.formFieldCountryCodeRequiredLabel->localeString.nameEmptyText
+  | (BillingAddress(FullName(_)), _) => localeString.fullNameLabel->localeString.nameEmptyText
+  | (BillingAddress(AddressCountry(_)), _) => localeString.countryLabel->localeString.nameEmptyText
+  | (BillingAddress(Email), _) =>
+    if value->String.trim->String.length === 0 {
+      localeString.emailEmptyText
+    } else {
+      localeString.emailInvalidText
+    }
+  | (BillingAddress(AddressLine1), _) => localeString.line1EmptyText
+  | (BillingAddress(AddressLine2), _) => localeString.line2EmptyText
+
+  | (PayoutMethodData(PaypalMobNumber), _) | (PayoutMethodData(VenmoMobNumber), _) =>
+    localeString.formFieldPhoneNumberLabel->localeString.nameEmptyText
   | _ => ""
   }
 }
@@ -408,7 +494,9 @@ let getPaymentMethodDataErrorString = (
 let getPaymentMethodIcon = (paymentMethod: paymentMethod) =>
   switch paymentMethod {
   | Card => <Icon name="default-card" size=20 />
-  | BankTransfer => <Icon name="bank" size=20 />
+  | BankRedirect
+  | BankTransfer =>
+    <Icon name="bank" size=20 />
   | Wallet => <Icon name="wallet-generic-line" size=20 />
   }
 
@@ -424,11 +512,18 @@ let getWalletIcon = (wallet: wallet) =>
   switch wallet {
   | Paypal => <Icon name="wallet-paypal" size=20 />
   | Venmo => <Icon name="wallet-venmo" size=20 />
+  | Momo => <Icon name="wallet-generic-line" size=20 />
+  }
+
+let getBankRedirectIcon = (bankRedirect: bankRedirect) =>
+  switch bankRedirect {
+  | Interac => <Icon name="interac" size=20 />
   }
 
 let getPaymentMethodTypeIcon = (paymentMethodType: paymentMethodType) =>
   switch paymentMethodType {
   | Card(_) => Card->getPaymentMethodIcon
+  | BankRedirect(br) => br->getBankRedirectIcon
   | BankTransfer(b) => b->getBankTransferIcon
   | Wallet(w) => w->getWalletIcon
   }
@@ -443,6 +538,7 @@ let defaultPm: paymentMethod = Card
 let defaultPmt = (~pm=defaultPm): paymentMethodType => {
   switch pm {
   | Card => Card(Debit)
+  | BankRedirect => BankRedirect(Interac)
   | BankTransfer => BankTransfer(ACH)
   | Wallet => Wallet(Paypal)
   }
@@ -519,9 +615,17 @@ let defaultSepaFields = [
 ]
 let defaultPaypalFields = [
   {
-    pmdMap: "payout_method_data.wallet.telephone_number",
+    pmdMap: "payout_method_data.wallet.paypal.telephone_number",
     displayName: "user_phone_number",
     fieldType: PaypalMobNumber,
+    value: None,
+  },
+]
+let defaultInteracFields = [
+  {
+    pmdMap: "payout_method_data.bank_redirect.interac.email",
+    displayName: "email",
+    fieldType: InteracEmail,
     value: None,
   },
 ]
@@ -530,17 +634,27 @@ let defaultDynamicPmdFields = (~pmt: paymentMethodType=defaultPmt()): array<
 > => {
   switch pmt {
   | Card(_) => defaultCardFields
+  | BankRedirect(Interac) => defaultInteracFields
   | BankTransfer(ACH) => defaultAchFields
   | BankTransfer(Bacs) => defaultBacsFields
   | BankTransfer(Pix) => defaultPixTransferFields
   | BankTransfer(Sepa) => defaultSepaFields
   | Wallet(Paypal) => defaultPaypalFields
-  | Wallet(Venmo) => []
+  | Wallet(Venmo) | Wallet(Momo) => []
   }
+}
+let mobileMoneyAddressFields: array<dynamicFieldForAddress> = [
+  {pmdMap: "billing.phone.country_code", displayName: "Country calling code", fieldType: PhoneCountryCode, value: None},
+  {pmdMap: "billing.phone.number", displayName: "Recipient mobile-money number", fieldType: PhoneNumber, value: None},
+]
+let requireMobileMoneyPhone = fields => {
+  let existing = fields.address->Option.getOr([])
+  let missing = mobileMoneyAddressFields->Array.filter(required => !(existing->Array.some(field => field.pmdMap === required.pmdMap)))
+  {...fields, address: Some([...existing, ...missing])}
 }
 let defaultPayoutDynamicFields = (~pmt: paymentMethodType=defaultPmt()): payoutDynamicFields => {
   {
-    address: None,
+    address: switch pmt { | Wallet(Momo) => Some(mobileMoneyAddressFields) | _ => None },
     payoutMethodData: defaultDynamicPmdFields(~pmt),
   }
 }
@@ -573,6 +687,7 @@ let defaultEnabledPaymentMethodsWithDynamicFields: array<paymentMethodTypeWithDy
   Wallet((Paypal, defaultPayoutDynamicFields(~pmt=Wallet(Paypal)))),
 ]
 let defaultPaymentMethodCollectOptions = {
+  tenantId: "",
   enabledPaymentMethods: defaultEnabledPaymentMethods,
   enabledPaymentMethodsWithDynamicFields: defaultEnabledPaymentMethodsWithDynamicFields,
   linkId: "",
@@ -600,6 +715,7 @@ let defaultStatusInfo = {
 let itemToObjMapper = dict => {
   unknownKeysWarning(
     [
+      "tenantId",
       "enabledPaymentMethods",
       "linkId",
       "payoutId",
@@ -629,6 +745,7 @@ let itemToObjMapper = dict => {
     linkId: getString(dict, "linkId", ""),
     payoutId: getString(dict, "payoutId", ""),
     customerId: getString(dict, "customerId", ""),
+    tenantId: getString(dict, "tenantId", ""),
     theme: getString(dict, "theme", ""),
     collectorName: getString(dict, "collectorName", ""),
     logo: getString(dict, "logo", ""),
@@ -653,6 +770,14 @@ let calculateValidity = (key, value, cardBrand, ~default=None) => {
     }
   | PayoutMethodData(CardExpDate(_)) =>
     if value->String.length > 0 && getExpiryValidity(value) {
+      Some(true)
+    } else if value->String.length == 0 {
+      default
+    } else {
+      Some(false)
+    }
+  | PayoutMethodData(CardHolderName) =>
+    if value->String.trim->String.includes(" ") {
       Some(true)
     } else if value->String.length == 0 {
       default
@@ -699,6 +824,17 @@ let calculateValidity = (key, value, cardBrand, ~default=None) => {
 
   // Sepa BIC is optional
   | PayoutMethodData(SepaBic) => Some(true)
+
+  | PayoutMethodData(InteracEmail)
+  | PayoutMethodData(PaypalMail)
+  | BillingAddress(Email) =>
+    if RegExp.test(emailValidationRegex, value) {
+      Some(true)
+    } else if value->String.length == 0 {
+      default
+    } else {
+      Some(false)
+    }
 
   // Defaults
   | PayoutMethodData(_)
@@ -921,6 +1057,12 @@ let formBody = (flow: paymentMethodCollectFlow, paymentMethodData: paymentMethod
 
   let paymentMethod = paymentMethodType->getPaymentMethodForPmt
 
+  // Add browser info for Interac bank redirect payments
+  let body = switch paymentMethodType {
+  | BankRedirect(Interac) => body->Array.concat(BrowserSpec.broswerInfo())
+  | _ => body
+  }
+
   // Flow specific fields
   switch flow {
   | PayoutMethodCollect => {
@@ -948,20 +1090,27 @@ let getPayoutDynamicFields = (
   ->Array.find(pmtr => {
     switch (pmtr, reqPmt) {
     | (Card(_), Card(_))
+    | (BankRedirect(Interac, _), BankRedirect(Interac))
     | (BankTransfer(ACH, _), BankTransfer(ACH))
     | (BankTransfer(Bacs, _), BankTransfer(Bacs))
     | (BankTransfer(Pix, _), BankTransfer(Pix))
     | (BankTransfer(Sepa, _), BankTransfer(Sepa))
     | (Wallet(Paypal, _), Wallet(Paypal))
-    | (Wallet(Venmo, _), Wallet(Venmo)) => true
+    | (Wallet(Venmo, _), Wallet(Venmo))
+    | (Wallet(Momo, _), Wallet(Momo)) => true
     | _ => false
     }
   })
   ->Option.map(pmt => {
     switch pmt {
     | Card(_, payoutDynamicFields)
+    | BankRedirect(_, payoutDynamicFields)
     | BankTransfer(_, payoutDynamicFields)
-    | Wallet(_, payoutDynamicFields) => payoutDynamicFields
+    | Wallet(_, payoutDynamicFields) =>
+      switch reqPmt {
+      | Wallet(Momo) => requireMobileMoneyPhone(payoutDynamicFields)
+      | _ => payoutDynamicFields
+      }
     }
   })
 

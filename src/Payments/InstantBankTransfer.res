@@ -1,23 +1,32 @@
-open RecoilAtoms
+open JotaiAtoms
 open Utils
 
 @react.component
 let make = () => {
-  let {iframeId} = Recoil.useRecoilValueFromAtom(keys)
-  let loggerState = Recoil.useRecoilValueFromAtom(loggerAtom)
-  let {themeObj} = Recoil.useRecoilValueFromAtom(configAtom)
-  let areRequiredFieldsValid = Recoil.useRecoilValueFromAtom(areRequiredFieldsValid)
-  let areRequiredFieldsEmpty = Recoil.useRecoilValueFromAtom(areRequiredFieldsEmpty)
-  let isManualRetryEnabled = Recoil.useRecoilValueFromAtom(isManualRetryEnabled)
+  let {iframeId, sdkAuthorization} = Jotai.useAtomValue(keys)
+  let loggerState = Jotai.useAtomValue(loggerAtom)
+  let {themeObj} = Jotai.useAtomValue(configAtom)
+  let areRequiredFieldsValid = Jotai.useAtomValue(areRequiredFieldsValid)
+  let areRequiredFieldsEmpty = Jotai.useAtomValue(areRequiredFieldsEmpty)
+  let isManualRetryEnabled = Jotai.useAtomValue(isManualRetryEnabled)
 
   let intent = PaymentHelpers.usePaymentIntent(Some(loggerState), BankTransfer)
+  let {layout} = Jotai.useAtomValue(optionAtom)
+  let layoutClass = CardUtils.getLayoutClass(layout)
 
   let (requiredFieldsBody, setRequiredFieldsBody) = React.useState(_ => Dict.make())
+
+  let paymentMethodType = "instant_bank_transfer"
+  let paymentMethod = "bank_transfer"
 
   UtilityHooks.useHandlePostMessages(
     ~complete=areRequiredFieldsValid && !areRequiredFieldsEmpty,
     ~empty=areRequiredFieldsEmpty,
-    ~paymentType="bank_transfer",
+    ~paymentType=paymentMethod,
+  )
+  SubscriptionEventHooks.useEmitFormStatus(
+    ~empty=areRequiredFieldsEmpty,
+    ~complete=areRequiredFieldsValid && !areRequiredFieldsEmpty,
   )
 
   let submitCallback = React.useCallback((ev: Window.event) => {
@@ -26,10 +35,9 @@ let make = () => {
     if confirm.doSubmit {
       if areRequiredFieldsValid && !areRequiredFieldsEmpty {
         let bodyArr =
-          PaymentBody.dynamicPaymentBody(
-            "bank_transfer",
-            "instant_bank_transfer",
-          )->mergeAndFlattenToTuples(requiredFieldsBody)
+          PaymentBody.dynamicPaymentBody(paymentMethod, paymentMethodType)->mergeAndFlattenToTuples(
+            requiredFieldsBody,
+          )
 
         intent(
           ~bodyArr,
@@ -42,15 +50,23 @@ let make = () => {
         postFailedSubmitResponse(~errortype="validation_error", ~message="Please enter all fields")
       }
     }
-  }, (requiredFieldsBody, areRequiredFieldsValid, areRequiredFieldsEmpty, isManualRetryEnabled))
-  useSubmitPaymentData(submitCallback)
+  }, (
+    requiredFieldsBody,
+    areRequiredFieldsValid,
+    areRequiredFieldsEmpty,
+    isManualRetryEnabled,
+    sdkAuthorization,
+  ))
+  PaymentMessageHooks.useSubmitPaymentData(submitCallback)
 
   <div className="flex flex-col animate-slowShow" style={gridGap: themeObj.spacingTab}>
-    <DynamicFields
-      paymentMethod="bank_transfer" paymentMethodType="instant_bank_transfer" setRequiredFieldsBody
-    />
-    <Surcharge paymentMethod="bank_transfer" paymentMethodType="instant" />
+    <RenderIf condition={layoutClass.\"type" === Accordion}>
+      <Space height="0" />
+    </RenderIf>
+    <DynamicFields paymentMethod paymentMethodType setRequiredFieldsBody />
+    <Surcharge paymentMethod paymentMethodType />
     <InfoElement />
+    <Terms paymentMethodType paymentMethod />
   </div>
 }
 

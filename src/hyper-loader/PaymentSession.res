@@ -2,11 +2,18 @@ open Types
 
 let make = (
   options,
-  ~clientSecret,
   ~publishableKey,
+  ~sdkSessionId,
   ~logger: option<HyperLoggerTypes.loggerMake>,
-  ~ephemeralKey,
-  ~redirectionFlags: RecoilAtomTypes.redirectionFlags,
+  ~redirectionFlags: JotaiAtomTypes.redirectionFlags,
+  ~iframeRef: ref<array<Nullable.t<Dom.element>>>,
+  ~isTestMode=false,
+  ~isUpdateIntentInProgress: ref<bool>,
+  ~clientSecretRef: ref<string>,
+  ~sdkAuthorizationRef: ref<string>,
+  ~sessionTokensDataPromise: ref<promise<JSON.t>>,
+  ~sdkConfigsDataPromise: ref<promise<JSON.t>>,
+  ~clientListDataPromise: ref<promise<JSON.t>>,
 ) => {
   let logger = logger->Option.getOr(LoggerUtils.defaultLoggerConfig)
   let customPodUri =
@@ -17,23 +24,45 @@ let make = (
     ->Option.getOr("")
   let endpoint = ApiEndpoint.getApiEndPoint(~publishableKey)
 
+  let localSelectorString = "hyper-preMountLoader-session-iframe"
+
+  let updateIntent = (callback: unit => promise<JSON.t>) => {
+    UpdateIntentHelpersNew.performUpdateIntent(
+      ~isUpdateIntentInProgress,
+      ~clientSecretRef,
+      ~sdkAuthorizationRef,
+      ~sessionTokensDataPromise,
+      ~sdkConfigsDataPromise,
+      ~clientListDataPromise,
+      ~iframes=iframeRef.contents,
+      ~callback,
+      ~publishableKey,
+      ~sdkSessionId,
+      ~endpoint,
+      ~customPodUri,
+      ~isTestMode,
+      ~isSdkParamsEnabled=false,
+      ~selectorString=localSelectorString,
+      ~shouldWaitForReady=false,
+      ~logger,
+    )
+  }
+
   let defaultInitPaymentSession = {
-    getCustomerSavedPaymentMethods: _ =>
+    getCustomerSavedPaymentMethods: options =>
       PaymentSessionMethods.getCustomerSavedPaymentMethods(
-        ~clientSecret,
+        ~options,
+        ~clientSecretRef,
         ~publishableKey,
         ~endpoint,
         ~logger,
         ~customPodUri,
+        ~sdkAuthorizationRef,
         ~redirectionFlags,
+        ~iframeRef,
+        ~isUpdateIntentInProgress,
       ),
-    getPaymentManagementMethods: _ =>
-      PaymentSessionMethods.getPaymentManagementMethods(
-        ~ephemeralKey,
-        ~logger,
-        ~customPodUri,
-        ~endpoint,
-      ),
+    updateIntent,
   }
 
   defaultInitPaymentSession

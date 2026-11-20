@@ -1,14 +1,14 @@
 open PaymentMethodCollectTypes
 open PaymentMethodCollectUtils
-open RecoilAtoms
+open JotaiAtoms
 
 @react.component
 let make = (~integrateError, ~logger) => {
   open Promise
-  let {localeString} = Recoil.useRecoilValueFromAtom(configAtom)
-  let {themeObj} = Recoil.useRecoilValueFromAtom(configAtom)
-  let keys = Recoil.useRecoilValueFromAtom(keys)
-  let options = Recoil.useRecoilValueFromAtom(paymentMethodCollectOptionAtom)
+  let {localeString} = Jotai.useAtomValue(configAtom)
+  let {themeObj} = Jotai.useAtomValue(configAtom)
+  let keys = Jotai.useAtomValue(keys)
+  let options = Jotai.useAtomValue(paymentMethodCollectOptionAtom)
 
   // Component states
   let (availablePaymentMethods, setAvailablePaymentMethods) = React.useState(_ =>
@@ -32,6 +32,13 @@ let make = (~integrateError, ~logger) => {
         if !(availablePM->Array.includes(Card)) {
           availablePM->Array.push(Card)
           availablePMT->Array.push(Card(Debit))
+        }
+      | BankRedirect(_) =>
+        if !(availablePM->Array.includes(BankRedirect)) {
+          availablePM->Array.push(BankRedirect)
+        }
+        if !(availablePMT->Array.includes(pm)) {
+          availablePMT->Array.push(pm)
         }
       | BankTransfer(_) =>
         if !(availablePM->Array.includes(BankTransfer)) {
@@ -122,6 +129,8 @@ let make = (~integrateError, ~logger) => {
         ~customPodUri="",
         ~endpoint,
         ~body=pmdBody,
+        ~payoutId=options.payoutId,
+        ~tenantId=options.tenantId,
       )
       ->then(res => {
         let data = res->decodePayoutConfirmResponse
@@ -151,8 +160,8 @@ let make = (~integrateError, ~logger) => {
         | None => {
             let updatedStatusInfo = {
               payoutId: options.payoutId,
-              status: Failed,
-              message: localeString.payoutStatusFailedMessage,
+              status: Unconfirmed,
+              message: Unconfirmed->getPayoutStatusMessage(localeString),
               code: None,
               errorMessage: None,
               reason: None,
@@ -166,8 +175,8 @@ let make = (~integrateError, ~logger) => {
         Console.error2("CRITICAL - Payouts confirm failed with unknown error", err)
         let updatedStatusInfo = {
           payoutId: options.payoutId,
-          status: Failed,
-          message: localeString.payoutStatusFailedMessage,
+          status: Unconfirmed,
+          message: Unconfirmed->getPayoutStatusMessage(localeString),
           code: None,
           errorMessage: None,
           reason: None,

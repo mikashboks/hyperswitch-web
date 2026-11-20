@@ -1,4 +1,4 @@
-open RecoilAtoms
+open JotaiAtoms
 open PaymentType
 open Utils
 open PaymentTypeContext
@@ -30,27 +30,18 @@ let showField = (val: PaymentType.addressType, type_: addressType) => {
 
 @react.component
 let make = (~className="", ~paymentType: option<CardThemeType.mode>=?) => {
-  let {localeString, themeObj} = Recoil.useRecoilValueFromAtom(configAtom)
-  let {fields} = Recoil.useRecoilValueFromAtom(optionAtom)
-  let loggerState = Recoil.useRecoilValueFromAtom(loggerAtom)
+  let {localeString, themeObj} = Jotai.useAtomValue(configAtom)
+  let {fields} = Jotai.useAtomValue(optionAtom)
   let showDetails = getShowDetails(~billingDetails=fields.billingDetails)
   let contextPaymentType = usePaymentType()
   let paymentType = paymentType->Option.getOr(contextPaymentType)
 
-  let (line1, setLine1) = Recoil.useLoggedRecoilState(userAddressline1, "line1", loggerState)
-  let (line2, setLine2) = Recoil.useLoggedRecoilState(userAddressline2, "line2", loggerState)
-  let (country, setCountry) = Recoil.useLoggedRecoilState(
-    userAddressCountry,
-    "country",
-    loggerState,
-  )
-  let (city, setCity) = Recoil.useLoggedRecoilState(userAddressCity, "city", loggerState)
-  let (postalCode, setPostalCode) = Recoil.useLoggedRecoilState(
-    userAddressPincode,
-    "postal_code",
-    loggerState,
-  )
-  let (state, setState) = Recoil.useLoggedRecoilState(userAddressState, "state", loggerState)
+  let (line1, setLine1) = Jotai.useAtom(userAddressline1)
+  let (line2, setLine2) = Jotai.useAtom(userAddressline2)
+  let (country, setCountry) = Jotai.useAtom(userAddressCountry)
+  let (city, setCity) = Jotai.useAtom(userAddressCity)
+  let (postalCode, setPostalCode) = Jotai.useAtom(userAddressPincode)
+  let (state, setState) = Jotai.useAtom(userAddressState)
 
   let line1Ref = React.useRef(Nullable.null)
   let line2Ref = React.useRef(Nullable.null)
@@ -64,8 +55,8 @@ let make = (~className="", ~paymentType: option<CardThemeType.mode>=?) => {
   let countryNames = getCountryNames(countryData)
 
   let checkPostalValidity = (
-    postal: RecoilAtomTypes.field,
-    setPostal: (RecoilAtomTypes.field => RecoilAtomTypes.field) => unit,
+    postal: JotaiAtomTypes.field,
+    setPostal: (JotaiAtomTypes.field => JotaiAtomTypes.field) => unit,
   ) => {
     if postal.value !== "" {
       setPostal(prev => {
@@ -84,7 +75,6 @@ let make = (~className="", ~paymentType: option<CardThemeType.mode>=?) => {
 
   let onPostalChange = ev => {
     let val = ReactEvent.Form.target(ev)["value"]
-
     setPostalCode(prev => {
       ...prev,
       value: val,
@@ -155,7 +145,7 @@ let make = (~className="", ~paymentType: option<CardThemeType.mode>=?) => {
       }
     }
   }, (line1, line2, country, state, city, postalCode))
-  useSubmitPaymentData(submitCallback)
+  PaymentMessageHooks.useSubmitPaymentData(submitCallback)
 
   let hasDefaulltValues =
     line2.value !== "" || city.value !== "" || postalCode.value !== "" || state.value !== ""

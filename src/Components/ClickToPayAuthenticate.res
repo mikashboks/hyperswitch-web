@@ -6,17 +6,21 @@ open Utils
 let make = (
   ~loggerState,
   ~savedMethods,
-  ~setShowFields,
   ~isClickToPayAuthenticateError,
   ~setIsClickToPayAuthenticateError,
   ~setPaymentToken,
   ~paymentTokenVal,
-  ~cvcProps,
   ~getVisaCards,
   ~setIsClickToPayRememberMe,
   ~closeComponentIfSavedMethodsAreEmpty,
+  ~setSelectedInstallmentPlan,
+  ~showInstallments,
+  ~setShowInstallments,
+  ~installmentsError,
+  ~setInstallmentsError,
 ) => {
-  let (clickToPayConfig, setClickToPayConfig) = Recoil.useRecoilState(RecoilAtoms.clickToPayConfig)
+  let (clickToPayConfig, setClickToPayConfig) = Jotai.useAtom(JotaiAtoms.clickToPayConfig)
+  let setShowPaymentMethodsScreen = Jotai.useSetAtom(JotaiAtoms.showPaymentMethodsScreen)
   let (_, setRequiredFieldsBody) = React.useState(_ => Dict.make())
   let (isShowClickToPayNotYou, setIsShowClickToPayNotYou) = React.useState(_ => false)
   let (isCTPAuthenticateNotYouClicked, setIsCTPAuthenticateNotYouClicked) = React.useState(_ =>
@@ -82,7 +86,7 @@ let make = (
                         setIsClickToPayAuthenticateError(_ => true)
                       }
                       if cards->Array.length === 0 && savedMethods->Array.length === 0 {
-                        setShowFields(_ => true)
+                        setShowPaymentMethodsScreen(_ => true)
                       }
                       resolve()
                     | Error(err) => {
@@ -208,8 +212,15 @@ let make = (
           brandIcon={customerMethod->CardUtils.getPaymentMethodBrand}
           index=i
           savedCardlength={ctpCards->Array.length}
-          cvcProps
           setRequiredFieldsBody
+          setSelectedInstallmentPlan
+          showInstallments
+          setShowInstallments
+          installmentsError
+          setInstallmentsError
+          eligibilitySurchargeDetails=None
+          eligibilityOfferDetails=None
+          eligibilityError=None
         />
       })
       ->React.array}

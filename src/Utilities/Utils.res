@@ -1,3 +1,6 @@
+@module("./HostedV2Transport.js")
+external fetchHosted: (string, Fetch.Request.init) => promise<Fetch.Response.t> = "fetchHosted"
+
 @val external document: 'a = "document"
 @val external window: Dom.element = "window"
 @val @scope("window") external iframeParent: Dom.element = "parent"
@@ -17,6 +20,31 @@ type dateTimeFormat = {resolvedOptions: unit => options}
 @send external remove: Dom.element => unit = "remove"
 
 @send external postMessage: (Dom.element, JSON.t, string) => unit = "postMessage"
+
+@send
+external postMessageWithTransfer: (
+  Dom.element,
+  string,
+  string,
+  array<MessageChannelBinding.port>,
+) => unit = "postMessage"
+
+let iframePostMessageWithTransfer = (
+  iframeRef: nullable<Dom.element>,
+  message: string,
+  ~targetOrigin=GlobalVars.targetOrigin,
+  ~transfer,
+) => {
+  switch iframeRef->Nullable.toOption {
+  | Some(ref) =>
+    try {
+      ref->Window.contentWindow->postMessageWithTransfer(message, targetOrigin, transfer)
+    } catch {
+    | _ => ()
+    }
+  | None => Console.error("This element does not exist or is not mounted yet.")
+  }
+}
 
 type dataModule = {states: JSON.t}
 
@@ -43,16 +71,30 @@ let messageCurrentWindow = (~targetOrigin="*", messageArr) => {
   window->messageWindow(~targetOrigin, messageArr)
 }
 
-let handleOnFocusPostMessage = (~targetOrigin="*") => {
-  messageParentWindow([("focus", true->JSON.Encode.bool)], ~targetOrigin)
+let handleOnFocusPostMessage = (~iframeId, ~elementType, ~targetOrigin="*") => {
+  messageParentWindow(
+    [
+      ("focus", true->JSON.Encode.bool),
+      ("elementType", elementType->JSON.Encode.string),
+      ("iframeId", iframeId->JSON.Encode.string),
+    ],
+    ~targetOrigin,
+  )
 }
 
 let handleOnCompleteDoThisMessage = (~targetOrigin="*") => {
   messageParentWindow([("completeDoThis", true->JSON.Encode.bool)], ~targetOrigin)
 }
 
-let handleOnBlurPostMessage = (~targetOrigin="*") => {
-  messageParentWindow([("blur", true->JSON.Encode.bool)], ~targetOrigin)
+let handleOnBlurPostMessage = (~iframeId, ~elementType, ~targetOrigin="*") => {
+  messageParentWindow(
+    [
+      ("blur", true->JSON.Encode.bool),
+      ("elementType", elementType->JSON.Encode.string),
+      ("iframeId", iframeId->JSON.Encode.string),
+    ],
+    ~targetOrigin,
+  )
 }
 
 let handleOnClickPostMessage = (~targetOrigin="*", ev) => {
@@ -185,6 +227,10 @@ let getDictFromObj = (dict, key) => {
   dict->Dict.get(key)->Option.flatMap(JSON.Decode.object)->Option.getOr(Dict.make())
 }
 
+let getOptionalDict = (dict, key) => {
+  dict->Dict.get(key)->Option.flatMap(JSON.Decode.object)
+}
+
 let getJsonObjectFromDict = (dict, key) => {
   dict->Dict.get(key)->Option.getOr(JSON.Encode.object(Dict.make()))
 }
@@ -197,6 +243,15 @@ let getDictFromJson = (json: JSON.t) => {
 
 let getDictFromDict = (dict, key) => {
   dict->getJsonObjectFromDict(key)->getDictFromJson
+}
+
+let getNonEmptyOption = val => {
+  switch val {
+  | Some("")
+  | None =>
+    None
+  | Some(str) => Some(str)
+  }
 }
 
 let getBool = (dict, key, default) => {
@@ -235,6 +290,12 @@ let getOptionalArrayFromDict = (dict, key) => {
 }
 let getArray = (dict, key) => {
   dict->getOptionalArrayFromDict(key)->Option.getOr([])
+}
+
+let getArrayOfObjectsFromDict = (dict, key) => {
+  dict
+  ->getArray(key)
+  ->Array.filterMap(JSON.Decode.object)
 }
 
 let getStrArray = (dict, key) => {
@@ -277,8 +338,24 @@ let handleMessage = (fun, _errorMessage) => {
   Window.addEventListener("message", handle)
   Some(() => Window.removeEventListener("message", handle))
 }
-let useSubmitPaymentData = callback => {
-  React.useEffect(() => {handleMessage(callback, "")}, [callback])
+// Nested SDK components must only accept confirm/control messages from their
+// direct host iframe. This keeps unrelated window messages from entering a
+// payment submit path while retaining the existing callback API.
+let isParentMessage = (~parentOrigin, ev: Window.event) =>
+  PaymentMessageSecurity.isExpectedSender(
+    ~source=iframeParent,
+    ~origin=parentOrigin,
+    ~eventSource=ev.source,
+    ~eventOrigin=ev.origin,
+  )
+
+let useSubmitPaymentDataFromParent = (~parentOrigin, callback) => {
+  let parentCallback = React.useCallback((ev: Window.event) => {
+    if isParentMessage(~parentOrigin, ev) {
+      callback(ev)
+    }
+  }, (callback, parentOrigin))
+  React.useEffect(() => {handleMessage(parentCallback, "")}, [parentCallback])
 }
 
 let useWindowSize = () => {
@@ -374,16 +451,42 @@ let toCamelCase = str => {
   } else {
     str
     ->String.toLowerCase
-    ->Js.String2.unsafeReplaceBy0(%re(`/([-_][a-z])/g`), (letter, _, _) => {
+    ->String.unsafeReplaceRegExpBy0(%re(`/([-_][a-z])/g`), (
+      ~match as letter,
+      ~offset as _,
+      ~input as _,
+    ) => {
       letter->String.toUpperCase
     })
     ->String.replaceRegExp(%re(`/[^a-zA-Z]/g`), "")
   }
 }
+
+let toCamelCaseWithNumberSupport = str => {
+  if str->String.includes(":") {
+    str
+  } else if str->String.includes("_") {
+    str
+    ->String.toLowerCase
+    ->String.unsafeReplaceRegExpBy0(%re(`/([-_][a-z])/g`), (
+      ~match as letter,
+      ~offset as _,
+      ~input as _,
+    ) => {
+      letter->String.toUpperCase
+    })
+    ->String.replaceRegExp(%re(`/[^a-zA-Z0-9]/g`), "")
+  } else {
+    str->String.replaceRegExp(%re(`/[^a-zA-Z0-9]/g`), "")
+  }
+}
+
 let toSnakeCase = str => {
-  str->Js.String2.unsafeReplaceBy0(%re("/[A-Z]/g"), (letter, _, _) =>
-    `_${letter->String.toLowerCase}`
-  )
+  str->String.unsafeReplaceRegExpBy0(%re("/[A-Z]/g"), (
+    ~match as letter,
+    ~offset as _,
+    ~input as _,
+  ) => `_${letter->String.toLowerCase}`)
 }
 type case = CamelCase | SnakeCase | KebabCase
 let rec transformKeys = (json: JSON.t, to: case) => {
@@ -430,6 +533,50 @@ let rec transformKeys = (json: JSON.t, to: case) => {
   ->getJsonFromArrayOfJson
 }
 
+let rec transformKeysWithoutModifyingValue = (json: JSON.t, to: case) => {
+  let toCase = switch to {
+  | CamelCase => toCamelCaseWithNumberSupport
+  | SnakeCase => toSnakeCase
+  | KebabCase => toKebabCase
+  }
+  let dict = json->getDictFromJson
+  dict
+  ->Dict.toArray
+  ->Array.map(((key, value)) => {
+    let x = switch JSON.Classify.classify(value) {
+    | Object(obj) => (key->toCase, obj->JSON.Encode.object->transformKeysWithoutModifyingValue(to))
+    | Array(arr) => (
+        key->toCase,
+        {
+          arr
+          ->Array.map(item =>
+            if item->JSON.Decode.object->Option.isSome {
+              item->transformKeysWithoutModifyingValue(to)
+            } else {
+              item
+            }
+          )
+          ->JSON.Encode.array
+        },
+      )
+    | String(str) => {
+        let val = if str == "Final" {
+          "FINAL"
+        } else if str == "example" || str == "Adyen" {
+          "adyen"
+        } else {
+          str
+        }
+        (key->toCase, val->JSON.Encode.string)
+      }
+    | Number(val) => (key->toCase, val->JSON.Encode.float)
+    | _ => (key->toCase, value)
+    }
+    x
+  })
+  ->getJsonFromArrayOfJson
+}
+
 let getClientCountry = clientTimeZone => {
   CountryStateDataRefs.countryDataRef.contents
   ->Array.find(item => item.timeZones->Array.find(i => i == clientTimeZone)->Option.isSome)
@@ -452,8 +599,8 @@ let isVpaIdValid = vpaId => {
 }
 
 let checkEmailValid = (
-  email: RecoilAtomTypes.field,
-  fn: (RecoilAtomTypes.field => RecoilAtomTypes.field) => unit,
+  email: JotaiAtomTypes.field,
+  fn: (JotaiAtomTypes.field => JotaiAtomTypes.field) => unit,
 ) => {
   switch email.value->String.match(
     %re(
@@ -485,7 +632,7 @@ let validatePhoneNumber = (countryCode, number) => {
     ->Dict.get("countries")
     ->Option.flatMap(JSON.Decode.array)
     ->Option.getOr([])
-    ->Belt.Array.keepMap(JSON.Decode.object)
+    ->Array.filterMap(JSON.Decode.object)
 
   let filteredArr = countriesArr->Array.filter(countryObj => {
     countryObj
@@ -546,7 +693,7 @@ let getCountryNames = (list: array<Country.timezoneType>) => {
 
 let getBankNames = (list: Bank.bankList, allBanks: array<string>) => {
   list->Array.reduce([], (arr, item) => {
-    if allBanks->Array.includes(item.hyperSwitch) {
+    if allBanks->Array.includes(item.value) {
       arr->Array.push(item.displayName)->ignore
     }
     arr
@@ -554,8 +701,7 @@ let getBankNames = (list: Bank.bankList, allBanks: array<string>) => {
 }
 
 let getBankKeys = (str, banks: Bank.bankList, default) => {
-  let bank = banks->Array.find(item => item.displayName == str)->Option.getOr(default)
-  bank.hyperSwitch
+  (banks->Array.find(item => item.displayName == str)->Option.getOr(default)).value
 }
 
 let constructClass = (~classname, ~dict) => {
@@ -567,9 +713,12 @@ let constructClass = (~classname, ~dict) => {
   ->Array.map(entry => {
     let (key, value) = entry
 
+    let toKebabCaseIfNeeded = key =>
+      key->String.includes("-") ? key : key->toKebabCase
+
     let class = if !(key->String.startsWith(":")) && !(key->String.startsWith(".")) {
       switch value->JSON.Decode.string {
-      | Some(str) => `${key->toKebabCase}:${str}`
+      | Some(str) => `${key->toKebabCaseIfNeeded}:${str}`
       | None => ""
       }
     } else if key->String.startsWith(":") {
@@ -581,7 +730,7 @@ let constructClass = (~classname, ~dict) => {
           ->Array.map(entry => {
             let (key, value) = entry
             switch value->JSON.Decode.string {
-            | Some(str) => `${key->toKebabCase}:${str}`
+            | Some(str) => `${key->toKebabCaseIfNeeded}:${str}`
             | None => ""
             }
           })
@@ -598,7 +747,7 @@ let constructClass = (~classname, ~dict) => {
           ->Array.map(entry => {
             let (key, value) = entry
             switch value->JSON.Decode.string {
-            | Some(str) => `${key->toKebabCase}:${str}`
+            | Some(str) => `${key->toKebabCaseIfNeeded}:${str}`
             | None => ""
             }
           })
@@ -649,19 +798,6 @@ let getArrofJsonString = (arr: array<string>) => {
   arr->Array.map(item => item->JSON.Encode.string)
 }
 
-let getPaymentDetails = (arr: array<string>) => {
-  let finalArr = []
-  arr
-  ->Array.map(item => {
-    let optionalVal = PaymentDetails.details->Array.find(i => i.type_ == item)
-    switch optionalVal {
-    | Some(val) => finalArr->Array.push(val)->ignore
-    | None => ()
-    }
-  })
-  ->ignore
-  finalArr
-}
 let getOptionalArr = arr => {
   switch arr {
   | Some(val) => val
@@ -670,8 +806,7 @@ let getOptionalArr = arr => {
 }
 
 let checkPriorityList = paymentMethodOrder => {
-  paymentMethodOrder->getOptionalArr->Array.get(0)->Option.getOr("") == "card" ||
-    paymentMethodOrder->Option.isNone
+  paymentMethodOrder->getOptionalArr->Array.get(0)->Option.getOr("") == "card"
 }
 type sizeunit = Pixel | Rem | Em
 let addSize = (str: string, value: float, unit: sizeunit) => {
@@ -744,7 +879,25 @@ let getCountryCode = country => {
   ->Option.getOr(Country.defaultTimeZone)
 }
 
-let getStateNames = (country: RecoilAtomTypes.field) => {
+// Reverse of getCountryCode: given an ISO Alpha-2 code returns the country display name.
+// Falls back to the code itself if not found.
+let getCountryNameFromCode = (isoCode: string): string => {
+  CountryStateDataRefs.countryDataRef.contents
+  ->Array.find(item => item.isoAlpha2 == isoCode)
+  ->Option.map(item => item.countryName)
+  ->Option.getOr(isoCode)
+}
+
+// Given an array of ISO Alpha-2 codes, returns display names for codes that exist
+// in countryDataRef. Codes with no match are excluded (e.g. "AC").
+let isoOptionsToCountryNames = (isoOptions: array<string>): array<string> =>
+  isoOptions->Array.filterMap(iso =>
+    CountryStateDataRefs.countryDataRef.contents
+    ->Array.find(item => item.isoAlpha2 === iso)
+    ->Option.map(item => item.countryName)
+  )
+
+let getStateNames = (country: JotaiAtomTypes.field) => {
   let options =
     CountryStateDataRefs.stateDataRef.contents
     ->getDictFromJson
@@ -764,11 +917,11 @@ let getStateNames = (country: RecoilAtomTypes.field) => {
 }
 
 let isAddressComplete = (
-  line1: RecoilAtomTypes.field,
-  city: RecoilAtomTypes.field,
-  postalCode: RecoilAtomTypes.field,
-  country: RecoilAtomTypes.field,
-  state: RecoilAtomTypes.field,
+  line1: JotaiAtomTypes.field,
+  city: JotaiAtomTypes.field,
+  postalCode: JotaiAtomTypes.field,
+  country: JotaiAtomTypes.field,
+  state: JotaiAtomTypes.field,
 ) =>
   line1.value != "" &&
   city.value != "" &&
@@ -804,7 +957,7 @@ let formatIBAN = iban => {
   let remaining = formatted->String.substringToEnd(~start=4)
 
   let chunks = switch remaining->String.match(%re(`/(.{1,4})/g`)) {
-  | Some(matches) => matches->Belt.Array.keepMap(x => x)
+  | Some(matches) => matches->Array.filterMap(x => x)
   | None => []
   }
 
@@ -849,6 +1002,49 @@ let rgbaTorgb = bgColor => {
   }
 }
 
+let findVersion = (re, content) => {
+  let result = RegExp.exec(re, content)
+  let version = switch result {
+  | Some(val) => val->RegExp.Result.matches
+  | None => []
+  }
+  version
+}
+
+let browserDetect = content => {
+  let patterns = [
+    ("Instagram", %re("/Instagram\/([\d]+\.[\w]?\.?[\w]+)/ig"), "Instagram"),
+    ("FBAV", %re("/FBAV\/([\d]+\.[\w]?\.?[\w]+)/ig"), "Facebook"),
+    ("Twitter", %re("/iPhone\/([\d]+\.[\w]?\.?[\w]+)/ig"), "Twitter"),
+    ("LinkedIn", %re("/LinkedInApp\/([\d]+\.[\w]?\.?[\w]+)/ig"), "LinkedIn"),
+    ("Edg", %re("/Edg\/([\d]+\.[\w]?\.?[\w]+)/ig"), "Microsoft Edge"),
+    ("Chrome", %re("/Chrome\/([\d]+\.[\w]?\.?[\w]+)/ig"), "Chrome"),
+    ("Safari", %re("/Safari\/([\d]+\.[\w]?\.?[\w]+)/ig"), "Safari"),
+    ("Opera", %re("/Opera\/([\d]+\.[\w]?\.?[\w]+)/ig"), "Opera"),
+    ("Firefox", %re("/Firefox\/([\d]+\.[\w]?\.?[\w]+)/ig"), "Firefox"),
+    ("fxios", %re("/fxios\/([\d]+\.[\w]?\.?[\w]+)/ig"), "Firefox"),
+  ]
+
+  switch patterns
+  ->Array.filterMap(((keyword, regex, name)) =>
+    if RegExp.test(keyword->RegExp.fromString, content) {
+      let version = switch findVersion(regex, content)->Array.get(0) {
+      | Some(v) => v
+      | None => ""
+      }
+      Some(`${name}-${version}`)
+    } else {
+      None
+    }
+  )
+  ->Array.get(0) {
+  | Some(result) => result
+  | None => "Others-0"
+  }
+}
+
+let arrayOfNameAndVersion = String.split(Window.Navigator.userAgent->browserDetect, "-")
+
 let delay = timeOut => {
   Promise.make((resolve, _reject) => {
     setTimeout(() => {
@@ -863,16 +1059,21 @@ let getHeaders = (
   ~customPodUri=None,
   ~headers=Dict.make(),
   ~publishableKey=None,
+  ~sdkAuthorization=None,
 ): Fetch.Headers.t => {
   let defaultHeaders = [
     ("Content-Type", "application/json"),
-    ("api-key", publishableKey->Option.map(key => key)->Option.getOr("invalid_key")),
     ("X-Client-Version", Window.version),
     ("X-Payment-Confirm-Source", "sdk"),
-    ("X-Browser-Name", HyperLogger.arrayOfNameAndVersion->Array.get(0)->Option.getOr("Others")),
-    ("X-Browser-Version", HyperLogger.arrayOfNameAndVersion->Array.get(1)->Option.getOr("0")),
+    ("X-Browser-Name", arrayOfNameAndVersion->Array.get(0)->Option.getOr("Others")),
+    ("X-Browser-Version", arrayOfNameAndVersion->Array.get(1)->Option.getOr("0")),
     ("X-Client-Platform", "web"),
   ]
+
+  let authorizationHeaders = switch sdkAuthorization->getNonEmptyOption {
+  | Some(sdkAuth) => [("Authorization", sdkAuth)]
+  | None => [("api-key", publishableKey->Option.map(key => key)->Option.getOr("invalid_key"))]
+  }
 
   let authHeader = switch (token, uri) {
   | (Some(tok), Some(_)) => [("Authorization", tok)]
@@ -886,21 +1087,28 @@ let getHeaders = (
 
   let finalHeaders = [
     ...defaultHeaders,
+    ...authorizationHeaders,
     ...authHeader,
     ...customPodHeader,
     ...Dict.toArray(headers),
   ]
 
-  Fetch.Headers.fromObject(Dict.fromArray(finalHeaders)->dictToObj)
+  let headerDict = Dict.fromArray(finalHeaders)
+  // All checkout requests, including explicit V2 Authorization headers, use
+  // their own SDK credential. Never infer tenant from a window-global value.
+  headerDict->Dict.get("Authorization")->TenantContext.fromAuthorization->Option.forEach(tenant => {
+    headerDict->Dict.set("x-tenant-id", tenant)
+  })
+  Fetch.Headers.fromObject(headerDict->dictToObj)
 }
 
 let formatException = exc =>
   switch exc {
-  | Exn.Error(obj) =>
-    let message = Exn.message(obj)
-    let name = Exn.name(obj)
-    let stack = Exn.stack(obj)
-    let fileName = Exn.fileName(obj)
+  | JsExn(obj) =>
+    let message = JsExn.message(obj)
+    let name = JsExn.name(obj)
+    let stack = JsExn.stack(obj)
+    let fileName = JsExn.fileName(obj)
 
     if (
       message->Option.isSome ||
@@ -927,6 +1135,8 @@ let fetchApi = (
   ~method: Fetch.method,
   ~customPodUri=None,
   ~publishableKey=None,
+  ~sdkAuthorization=None,
+  ~signal: option<Fetch.AbortSignal.t>=?,
 ) => {
   open Promise
   let body = switch method {
@@ -934,12 +1144,13 @@ let fetchApi = (
   | _ => resolve(Some(Fetch.Body.string(bodyStr)))
   }
   body->then(body => {
-    Fetch.fetch(
+    fetchHosted(
       uri,
       {
         method,
         ?body,
-        headers: getHeaders(~headers, ~uri, ~customPodUri, ~publishableKey),
+        ?signal,
+        headers: getHeaders(~headers, ~uri, ~customPodUri, ~publishableKey, ~sdkAuthorization),
       },
     )
     ->catch(err => {
@@ -964,6 +1175,8 @@ let fetchApiWithLogging = async (
   ~publishableKey=None,
   ~isPaymentSession=false,
   ~onCatchCallback=None,
+  ~sdkAuthorization=None,
+  ~signal: option<Fetch.AbortSignal.t>=?,
 ) => {
   open LoggerUtils
 
@@ -981,16 +1194,18 @@ let fetchApiWithLogging = async (
     | _ => Some(Fetch.Body.string(bodyStr))
     }
 
-    let resp = await Fetch.fetch(
+    let resp = await fetchHosted(
       uri,
       {
         method,
         ?body,
+        ?signal,
         headers: getHeaders(
           ~headers=headers->Option.getOr(Dict.make()),
           ~uri,
           ~customPodUri,
           ~publishableKey,
+          ~sdkAuthorization,
         ),
       },
     )
@@ -1050,7 +1265,7 @@ let fetchApiWithLogging = async (
 
 let arrayJsonToCamelCase = arr => {
   arr->Array.map(item => {
-    item->transformKeys(CamelCase)
+    item->transformKeysWithoutModifyingValue(CamelCase)
   })
 }
 
@@ -1062,14 +1277,31 @@ let getArrayValFromJsonDict = (dict, key, arrayKey) => {
   ->Dict.get(arrayKey)
   ->Option.flatMap(JSON.Decode.array)
   ->Option.getOr([])
-  ->Belt.Array.keepMap(JSON.Decode.string)
+  ->Array.filterMap(JSON.Decode.string)
 }
 
 let isOtherElements = componentType => {
   componentType == "card" ||
   componentType == "cardNumber" ||
   componentType == "cardExpiry" ||
-  componentType == "cardCvc"
+  componentType == "cardCvc" ||
+  componentType == "vaultCardNumber" ||
+  componentType == "vaultCardExpiry" ||
+  componentType == "vaultCardCvc"
+}
+
+// Elements that can have multiple instances (for event listener naming)
+let canHaveMultipleInstances = componentType => {
+  // paymentMethodsSDK is included so the new-card and saved-card-CVC inner iframes
+  // (distinct container ids) get distinct onMount listener names and never clobber
+  // each other's handshake/height handling when both exist (grouped layouts).
+  componentType == "cardNumber" ||
+  componentType == "cardExpiry" ||
+  componentType == "cardCvc" ||
+  componentType == "vaultCardNumber" ||
+  componentType == "vaultCardExpiry" ||
+  componentType == "vaultCardCvc" ||
+  componentType == "paymentMethodsSDK"
 }
 
 let nbsp = `\u00A0`
@@ -1182,7 +1414,7 @@ let rec flattenObject = (obj, addIndicatorForObject) => {
     ->Array.forEach(entry => {
       let (key, value) = entry
 
-      if value->jsonToNullableJson->Js.Nullable.isNullable {
+      if value->jsonToNullableJson->Nullable.isNullable {
         Dict.set(newDict, key, value)
       } else {
         switch value->JSON.Decode.object {
@@ -1219,7 +1451,7 @@ let rec flattenObjectWithStringifiedJson = (obj, addIndicatorForObject, keepPare
     ->Array.forEach(entry => {
       let (key, value) = entry
 
-      if value->jsonToNullableJson->Js.Nullable.isNullable {
+      if value->jsonToNullableJson->Nullable.isNullable {
         Dict.set(newDict, key, value)
       } else {
         switch value->getStringFromJson("")->safeParse->JSON.Decode.object {
@@ -1261,7 +1493,7 @@ let rec flatten = (obj, addIndicatorForObject) => {
     ->Array.forEach(entry => {
       let (key, value) = entry
 
-      if value->jsonToNullableJson->Js.Nullable.isNullable {
+      if value->jsonToNullableJson->Nullable.isNullable {
         Dict.set(newDict, key, value)
       } else {
         switch value->JSON.Classify.classify {
@@ -1318,14 +1550,30 @@ let rec flatten = (obj, addIndicatorForObject) => {
   newDict
 }
 
+external eventDataFromJson: JSON.t => Types.eventData = "%identity"
+
+external eventToWindowEvent: Types.event => Window.event = "%identity"
+
+let sanitizeEventData = (data: Types.eventData): Types.eventData => {
+  let dict = data->anyTypeToJson->getDictFromJson
+  let isCompleteEvent = dict->Dict.get("complete")->Option.isSome
+  dict
+  ->Dict.toArray
+  ->Array.filter(((key, _)) => key !== "iframeId" && (isCompleteEvent || key !== "elementType"))
+  ->Dict.fromArray
+  ->JSON.Encode.object
+  ->eventDataFromJson
+}
+
 let eventHandlerFunc = (
   condition: Types.event => bool,
   eventHandler,
   evType: Types.eventType,
   activity,
+  ~isTrustedMessage,
 ) => {
   let changeHandler = ev => {
-    if ev->condition {
+    if isTrustedMessage(ev) && ev->condition {
       switch evType {
       | Change
       | Click
@@ -1336,7 +1584,7 @@ let eventHandlerFunc = (
       | OneClickConfirmPayment
       | Blur =>
         switch eventHandler {
-        | Some(eH) => eH(Some(ev.data))
+        | Some(eH) => eH(Some(sanitizeEventData(ev.data)))
         | None => ()
         }
       | _ => ()
@@ -1346,19 +1594,33 @@ let eventHandlerFunc = (
   EventListenerManager.addSmartEventListener("message", changeHandler, activity)
 }
 
-let makeIframe = (element, url) => {
-  open Types
+let makeIframe = (element, url, ~onCreate=_ => ()) => {
   Promise.make((resolve, _) => {
-    let iframe = createElement("iframe")
-    iframe.id = "orca-fullscreen"
-    iframe.src = url
-    iframe.name = "fullscreen"
-    iframe.style = "position: fixed; inset: 0; width: 100vw; height: 100vh; border: 0; z-index: 422222133323; "
-    iframe.onload = () => {
+    let iframe = Window.createElement("iframe")
+    iframe->Window.setAttribute("id", "orca-fullscreen")
+    iframe->Window.setAttribute("src", url)
+    iframe->Window.setAttribute("name", "fullscreen")
+    iframe->Window.setAttribute(
+      "style",
+      "position: fixed; inset: 0; width: 100vw; height: 100vh; border: 0; z-index: 422222133323; ",
+    )
+    iframe->Window.elementOnload(() => {
       resolve(Dict.make())
-    }
-    element->appendChild(iframe)
+    })
+    element->Window.appendChildElement(iframe)
+    onCreate(iframe)
   })
+}
+let makeHiddenIframe = (element, ~src, ~id) => {
+  let iframe = Window.createElement("iframe")
+  iframe->Window.setAttribute("id", id)
+  iframe->Window.setAttribute("src", src)
+  iframe->Window.setAttribute(
+    "style",
+    "position: absolute; width: 1px; height: 1px; border: none; overflow: hidden; left: -9999px; top: -9999px;",
+  )
+  element->Window.appendChild(iframe)
+  iframe
 }
 let makeForm = (element, url, id) => {
   open Types
@@ -1392,26 +1654,52 @@ let getThemePromise = dict => {
   }
 }
 
-let makeOneClickHandlerPromise = sdkHandleIsThere => {
+let oneClickRequestCounter = ref(0)
+
+let makeOneClickHandlerPromise = (sdkHandleIsThere, ~parentOrigin, ~parentWindow=iframeParent) => {
   Promise.make((resolve, _) => {
     if !sdkHandleIsThere {
       resolve(JSON.Encode.bool(true))
+    } else if !PaymentMessageSecurity.isConcreteOrigin(parentOrigin) {
+      resolve(JSON.Encode.bool(false))
     } else {
+      oneClickRequestCounter := oneClickRequestCounter.contents + 1
+      let requestId = `${Date.now()->Float.toString}-${oneClickRequestCounter.contents->Int.toString}`
+      let settled = ref(false)
       let handleMessage = (event: Window.event) => {
-        let json = try {
-          event.data->safeParse
-        } catch {
-        | _ => JSON.Encode.null
-        }
-
-        let dict = json->getDictFromJson
-
-        if dict->Dict.get("walletClickEvent")->Option.isSome {
-          resolve(dict->Dict.get("walletClickEvent")->Option.getOr(true->JSON.Encode.bool))
+        if (
+          !settled.contents &&
+          PaymentMessageSecurity.isExpectedSender(
+            ~source=parentWindow,
+            ~origin=parentOrigin,
+            ~eventSource=event.source,
+            ~eventOrigin=event.origin,
+          )
+        ) {
+          let dict = event.data->safeParse->getDictFromJson
+          if dict->getString("walletClickRequestId", "") === requestId {
+            switch dict->Dict.get("walletClickEvent")->Option.flatMap(JSON.Decode.bool) {
+            | Some(accepted) =>
+              settled := true
+              EventListenerManager.removeSmartEventListener("message", `walletClick-${requestId}`)
+              resolve(accepted->JSON.Encode.bool)
+            | None => ()
+            }
+          }
         }
       }
-      Window.addEventListener("message", handleMessage)
-      handleOnConfirmPostMessage(~targetOrigin="*", ~isOneClick=true)
+      EventListenerManager.addSmartEventListener(
+        "message",
+        event => handleMessage(event->eventToWindowEvent),
+        `walletClick-${requestId}`,
+      )
+      parentWindow->messageWindow(
+        [
+          ("oneClickConfirmTriggered", true->JSON.Encode.bool),
+          ("walletClickRequestId", requestId->JSON.Encode.string),
+        ],
+        ~targetOrigin=parentOrigin,
+      )
     }
   })
 }
@@ -1525,6 +1813,23 @@ let getStateCodeFromStateName = (stateName: string, countryCode: string): string
 
   stateCode->Option.getOr(stateName)
 }
+
+let getStateNameFromCode = (stateCode: string, countryIso: string): string => {
+  let countryStates =
+    CountryStateDataRefs.stateDataRef.contents
+    ->getDictFromJson
+    ->getOptionalArrayFromDict(countryIso)
+
+  countryStates
+  ->Option.flatMap(states =>
+    states->Array.find(item => {
+      item->getDictFromJson->getString("code", "") === stateCode
+    })
+  )
+  ->Option.map(item => item->getDictFromJson->getString("value", ""))
+  ->Option.getOr(stateCode)
+}
+
 let removeHyphen = str => str->String.replaceRegExp(%re("/-/g"), "")
 
 let compareLogic = (a, b) => {
@@ -1573,6 +1878,8 @@ let handleFailureResponse = (~message, ~errorType) =>
     ),
   ]->getJsonFromArrayOfJson
 
+let closePaymentLoaderIfAny = () => messageParentWindow([("fullscreen", false->JSON.Encode.bool)])
+
 let getPaymentId = clientSecret =>
   String.split(clientSecret, "_secret_")->Array.get(0)->Option.getOr("")
 
@@ -1585,22 +1892,39 @@ let checkIs18OrAbove = dateOfBirth => {
   dateOfBirth <= compareDate
 }
 
-let getFirstAndLastNameFromFullName = fullName => {
+let splitFullName = fullName => {
   let nameStrings = fullName->String.split(" ")
-  let firstName =
-    nameStrings
-    ->Array.get(0)
-    ->Option.flatMap(x => Some(x->JSON.Encode.string))
-    ->Option.getOr(JSON.Encode.null)
-  let lastNameStr = nameStrings->Array.sliceToEnd(~start=1)->Array.join(" ")->String.trim
+  let firstName = nameStrings->Array.get(0)->Option.getOr("")
+  let lastName = nameStrings->Array.sliceToEnd(~start=1)->Array.join(" ")->String.trim
+  (firstName, lastName)
+}
+
+let getFirstAndLastNameFromFullName = fullName => {
+  let (firstNameStr, lastNameStr) = fullName->splitFullName
+  let firstNameJson = firstNameStr->JSON.Encode.string
   let lastNameJson = lastNameStr === "" ? JSON.Encode.null : lastNameStr->JSON.Encode.string
 
-  (firstName, lastNameJson)
+  (firstNameJson, lastNameJson)
 }
 
 let isKeyPresentInDict = (dict, key) => dict->Dict.get(key)->Option.isSome
 
 let minorUnitToString = val => (val->Int.toFloat /. 100.)->Float.toString
+
+let formatAmountWithTwoDecimals = amount => {
+  let amountStr = amount->Float.toString
+  let parts = amountStr->String.split(".")
+  let wholePart = parts->Array.get(0)->Option.getOr("0")
+  let decimalPart = parts->Array.get(1)->Option.getOr("00")
+  let paddedDecimal = if decimalPart->String.length < 2 {
+    decimalPart ++ "0"
+  } else if decimalPart->String.length > 2 {
+    decimalPart->String.slice(~start=0, ~end=2)
+  } else {
+    decimalPart
+  }
+  `${wholePart}.${paddedDecimal}`
+}
 
 let mergeAndFlattenToTuples = (body, requiredFieldsBody) =>
   body
@@ -1609,21 +1933,62 @@ let mergeAndFlattenToTuples = (body, requiredFieldsBody) =>
   ->mergeTwoFlattenedJsonDicts(requiredFieldsBody)
   ->getArrayOfTupleFromDict
 
-let handleIframePostMessageForWallets = (msg, componentName, mountedIframeRef) => {
+let handleIframePostMessageForWallets = (
+  msg,
+  componentName,
+  mountedIframeRef,
+  ~iframes,
+  ~targetOrigin,
+) => {
   let isMessageSent = ref(false)
-  let iframes = Window.querySelectorAll("iframe")
-
+  // Route only to widgets registered by this Elements instance. A matching URL
+  // on an unrelated merchant iframe does not make it a trusted recipient.
   iframes->Array.forEach(iframe => {
-    let iframeSrc = iframe->Window.getAttribute("src")->Nullable.toOption->Option.getOr("")
-    if iframeSrc->String.includes(`componentName=${componentName}`) {
-      iframe->Js.Nullable.return->Window.iframePostMessage(msg)
-      isMessageSent := true
+    switch iframe->Nullable.toOption {
+    | Some(element) if element->Window.Element.isConnected =>
+      let iframeSrc = element->Window.getAttribute("src")->Nullable.toOption->Option.getOr("")
+      switch PaymentMessageSecurity.httpUrl(iframeSrc) {
+      | Some(url)
+        if url.origin === targetOrigin &&
+          url.searchParams
+          ->PaymentMessageSecurity.getAll("componentName")
+          ->Array.includes(componentName) =>
+        iframe->Window.iframePostMessage(msg, ~targetOrigin)
+        isMessageSent := true
+      | _ => ()
+      }
+    | _ => ()
     }
   })
 
-  if !isMessageSent.contents {
-    mountedIframeRef->Window.iframePostMessage(msg)
+  if !isMessageSent.contents && iframes->Array.includes(mountedIframeRef) {
+    switch mountedIframeRef->Nullable.toOption {
+    | Some(element) if element->Window.Element.isConnected =>
+      // The browsing context may have navigated since the wallet was opened.
+      mountedIframeRef->Window.iframePostMessage(msg, ~targetOrigin)
+    | _ => ()
+    }
   }
+}
+
+let getWidgetIframe = (~iframeRef: ref<array<Nullable.t<Dom.element>>>, ~id) => {
+  if id === "" {
+    None
+  } else {
+    iframeRef.contents->Array.find(iframe => {
+      switch iframe->Nullable.toOption {
+      | Some(elem) =>
+        let iframeId = elem->Window.getAttribute("id")->Nullable.toOption->Option.getOr("")
+        let isConnected = elem->Window.Element.isConnected
+        isConnected && iframeId->String.endsWith(id)
+      | None => false
+      }
+    })
+  }
+}
+
+let isWidgetPresent = (~iframeRef: ref<array<Nullable.t<Dom.element>>>, ~id) => {
+  getWidgetIframe(~iframeRef, ~id)->Option.isSome
 }
 
 let isDigitLimitExceeded = (val, ~digit) => {
@@ -1634,7 +1999,7 @@ let isDigitLimitExceeded = (val, ~digit) => {
 }
 
 /* Redirect Handling */
-let replaceRootHref = (href: string, redirectionFlags: RecoilAtomTypes.redirectionFlags) => {
+let replaceRootHref = (href: string, redirectionFlags: JotaiAtomTypes.redirectionFlags) => {
   if redirectionFlags.shouldRemoveBeforeUnloadEvents {
     handleBeforeRedirectPostMessage()
   }
@@ -1660,14 +2025,14 @@ let replaceRootHref = (href: string, redirectionFlags: RecoilAtomTypes.redirecti
 
 let isValidHexColor = (color: string): bool => {
   let hexRegex = %re("/^#([0-9a-f]{6}|[0-9a-f]{3})$/i")
-  Js.Re.test_(hexRegex, color)
+  RegExp.test(hexRegex, color)
 }
 
 let convertKeyValueToJsonStringPair = (key, value) => (key, JSON.Encode.string(value))
 
 let validateName = (
   val: string,
-  prev: RecoilAtomTypes.field,
+  prev: JotaiAtomTypes.field,
   localeString: LocaleStringTypes.localeStrings,
 ) => {
   let isValid = val !== "" && %re("/^\D*$/")->RegExp.test(val)
@@ -1696,7 +2061,7 @@ let validateNickname = (val: string, localeString: LocaleStringTypes.localeStrin
 
 let setNickNameState = (
   val,
-  prevState: RecoilAtomTypes.field,
+  prevState: JotaiAtomTypes.field,
   localeString: LocaleStringTypes.localeStrings,
 ) => {
   let (isValid, errorString) = val->validateNickname(localeString)
@@ -1713,4 +2078,133 @@ let getStringFromDict = (dict, key, defaultValue: string) => {
   ->Option.flatMap(x => x->Dict.get(key))
   ->Option.flatMap(JSON.Decode.string)
   ->Option.getOr(defaultValue)
+}
+
+let getStringFromBool = val => val ? "true" : "false"
+let loadScriptIfNotExist = (~url, ~logger: HyperLoggerTypes.loggerMake, ~eventName) => {
+  if Window.querySelectorAll(`script[src="${url}"]`)->Array.length === 0 {
+    let script = Window.createElement("script")
+    script->Window.elementSrc(url)
+    script->Window.elementOnerror(_ => {
+      logger.setLogError(~value="Script failed to load", ~eventName)
+    })
+    script->Window.elementOnload(() => {
+      logger.setLogInfo(~value="Script loaded successfully", ~eventName)
+    })
+    Window.body->Window.appendChild(script)
+  }
+}
+
+let defaultCountryCode = {
+  let clientTimeZone = dateTimeFormat().resolvedOptions().timeZone
+  let clientCountry = getClientCountry(clientTimeZone)
+  clientCountry.isoAlpha2
+}
+
+let rec maskStringValuesInJson = (~value, ~currentPath, ~depth, ~shouldMaskField) => {
+  if depth > 10 {
+    "***MAX_DEPTH_REACHED***"->JSON.Encode.string
+  } else {
+    switch value->JSON.Classify.classify {
+    | String(str) =>
+      currentPath->shouldMaskField
+        ? (str->String.length > 0 ? "***REDACTED***" : "***EMPTY***")->JSON.Encode.string
+        : value
+
+    | Object(dict) =>
+      dict
+      ->Dict.toArray
+      ->Array.map(((key, val)) => {
+        let newPath = currentPath == "" ? key : `${currentPath}.${key}`
+        (
+          key,
+          maskStringValuesInJson(
+            ~value=val,
+            ~currentPath=newPath,
+            ~depth=depth + 1,
+            ~shouldMaskField,
+          ),
+        )
+      })
+      ->getJsonFromArrayOfJson
+    | Array(arr) =>
+      arr
+      ->Array.mapWithIndex((item, index) => {
+        let newPath = `${currentPath}[${index->Int.toString}]`
+        maskStringValuesInJson(
+          ~value=item,
+          ~currentPath=newPath,
+          ~depth=depth + 1,
+          ~shouldMaskField,
+        )
+      })
+      ->JSON.Encode.array
+    | _ => value
+    }
+  }
+}
+
+let getSdkAuthorizationData = sdkAuthorization => {
+  open Types
+
+  let arrOfKeys =
+    sdkAuthorization
+    ->Window.atob
+    ->String.split(",")
+
+  let getValueFromArrayOfKeys = keyName => {
+    let prefix = keyName ++ "="
+    let keyStr = arrOfKeys->Array.find(key => key->String.startsWith(prefix))
+    keyStr->Option.flatMap(key => {
+      let value = key->String.sliceToEnd(~start=prefix->String.length)
+      value->String.length > 0 ? Some(value) : None
+    })
+  }
+
+  {
+    publishableKey: getValueFromArrayOfKeys("publishable_key"),
+    clientSecret: getValueFromArrayOfKeys("client_secret"),
+    customerId: getValueFromArrayOfKeys("customer_id"),
+    profileId: getValueFromArrayOfKeys("profile_id"),
+    pmSessionId: getValueFromArrayOfKeys("payment_method_session_id"),
+    paymentId: getValueFromArrayOfKeys("payment_id"),
+  }
+}
+
+// Parses the unified create() API arguments into (componentType, options).
+// Supports both:
+//   Legacy API: create("payment", options)
+//   New API:    create({ type: "payment", options: {...} })
+let parseComponentTypeAndOptions = (
+  ~componentTypeOrOptions: JSON.t,
+  ~legacyOptions: Nullable.t<JSON.t>,
+  ~defaultComponentType: string,
+): (string, JSON.t) => {
+  switch componentTypeOrOptions->JSON.Classify.classify {
+  | String(typeStr) =>
+    let opts = legacyOptions->Nullable.toOption->Option.getOr(JSON.Encode.null)
+    (typeStr, opts)
+  | Object(dict) =>
+    let componentType = dict->getString("type", defaultComponentType)
+    let opts = switch dict->Dict.get("options") {
+    | Some(o) => o
+    | None => legacyOptions->Nullable.toOption->Option.getOr(JSON.Encode.null)
+    }
+    (componentType, opts)
+  | _ => (defaultComponentType, JSON.Encode.null)
+  }
+}
+
+let getPaymentIdOrExtractFromSdkAuth = (~clientSecret, ~sdkAuthorization) => {
+  switch sdkAuthorization {
+  | Some(sdkAuth) =>
+    let paymentId = try {
+      let data = getSdkAuthorizationData(sdkAuth)
+      data.paymentId
+    } catch {
+    | _ => None
+    }
+    paymentId->Option.getOr(clientSecret->getPaymentId)
+  | None => clientSecret->getPaymentId
+  }
 }

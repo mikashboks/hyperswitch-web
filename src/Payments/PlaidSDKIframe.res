@@ -1,5 +1,6 @@
 @react.component
 let make = () => {
+  let isTrustedParent = PaymentMessageHooks.useFullscreenParentCheck()
   open Utils
 
   let (linkToken, setLinkToken) = React.useState(_ => "")
@@ -7,6 +8,7 @@ let make = () => {
   let (pmAuthConnectorsArr, setPmAuthConnectorsArr) = React.useState(_ => [])
   let (publishableKey, setPublishableKey) = React.useState(_ => "")
   let (clientSecret, setClientSecret) = React.useState(_ => "")
+  let (sdkAuthorization, setSdkAuthorization) = React.useState(_ => "")
   let (isForceSync, setIsForceSync) = React.useState(_ => false)
   let logger = React.useMemo(
     () => HyperLogger.make(~source=Elements(Payment), ~clientSecret, ~merchantId=publishableKey),
@@ -19,13 +21,14 @@ let make = () => {
       let metaData = json->getDictFromJson->getDictFromDict("metadata")
       let linkToken = metaData->getString("linkToken", "")
 
-      if linkToken->String.length > 0 {
+      if isTrustedParent(ev) && linkToken->String.length > 0 {
         setLinkToken(_ => linkToken)
         setPmAuthConnectorsArr(_ =>
           metaData->getArray("pmAuthConnectorArray")->Array.map(JSON.Decode.string)
         )
         setPublishableKey(_ => metaData->getString("publishableKey", ""))
         setClientSecret(_ => metaData->getString("clientSecret", ""))
+        setSdkAuthorization(_ => metaData->getString("sdkAuthorization", ""))
         setIsForceSync(_ => metaData->getBool("isForceSync", false))
       }
     }
@@ -55,6 +58,7 @@ let make = () => {
         ~logger,
         ~customPodUri="",
         ~isForceSync=true,
+        ~sdkAuthorization=Some(sdkAuthorization),
       )
       let dict = json->getDictFromJson
       let status = dict->getString("status", "")

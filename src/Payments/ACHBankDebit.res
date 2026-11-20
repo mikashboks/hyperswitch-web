@@ -1,17 +1,19 @@
-open RecoilAtoms
+open JotaiAtoms
 open Utils
 open PaymentModeType
 
 @react.component
 let make = () => {
-  let {themeObj} = Recoil.useRecoilValueFromAtom(configAtom)
-  let {displaySavedPaymentMethods} = Recoil.useRecoilValueFromAtom(optionAtom)
-  let isManualRetryEnabled = Recoil.useRecoilValueFromAtom(isManualRetryEnabled)
+  let {themeObj} = Jotai.useAtomValue(configAtom)
+  let {displaySavedPaymentMethods, layout} = Jotai.useAtomValue(optionAtom)
+  let layoutClass = CardUtils.getLayoutClass(layout)
+  let isManualRetryEnabled = Jotai.useAtomValue(isManualRetryEnabled)
+  let {sdkAuthorization} = Jotai.useAtomValue(keys)
 
-  let loggerState = Recoil.useRecoilValueFromAtom(loggerAtom)
+  let loggerState = Jotai.useAtomValue(loggerAtom)
 
-  let (email, _) = Recoil.useLoggedRecoilState(userEmailAddress, "email", loggerState)
-  let (fullName, _) = Recoil.useLoggedRecoilState(userFullName, "fullName", loggerState)
+  let email = Jotai.useAtomValue(userEmailAddress)
+  let fullName = Jotai.useAtomValue(userFullName)
 
   let intent = PaymentHelpers.usePaymentIntent(Some(loggerState), BankDebits)
 
@@ -22,15 +24,15 @@ let make = () => {
   let (modalData, setModalData) = React.useState(_ => None)
 
   let toolTipRef = React.useRef(Nullable.null)
-  let (line1, _) = Recoil.useLoggedRecoilState(userAddressline1, "line1", loggerState)
-  let (line2, _) = Recoil.useLoggedRecoilState(userAddressline2, "line2", loggerState)
-  let (country, _) = Recoil.useLoggedRecoilState(userAddressCountry, "country", loggerState)
-  let (city, _) = Recoil.useLoggedRecoilState(userAddressCity, "city", loggerState)
-  let (postalCode, _) = Recoil.useLoggedRecoilState(userAddressPincode, "postal_code", loggerState)
-  let (state, _) = Recoil.useLoggedRecoilState(userAddressState, "state", loggerState)
+  let line1 = Jotai.useAtomValue(userAddressline1)
+  let line2 = Jotai.useAtomValue(userAddressline2)
+  let country = Jotai.useAtomValue(userAddressCountry)
+  let city = Jotai.useAtomValue(userAddressCity)
+  let postalCode = Jotai.useAtomValue(userAddressPincode)
+  let state = Jotai.useAtomValue(userAddressState)
   let countryCode = Utils.getCountryCode(country.value).isoAlpha2
   let stateCode = Utils.getStateCodeFromStateName(state.value, countryCode)
-  let paymentMethodListValue = Recoil.useRecoilValueFromAtom(PaymentUtils.paymentMethodListValue)
+  let paymentMethodListValue = Jotai.useAtomValue(PaymentUtils.paymentMethodListValue)
 
   let pmAuthMapper = React.useMemo1(
     () =>
@@ -64,6 +66,7 @@ let make = () => {
   let empty = email.value == "" || fullName.value != ""
 
   UtilityHooks.useHandlePostMessages(~complete, ~empty, ~paymentType="ach_bank_debit")
+  SubscriptionEventHooks.useEmitFormStatus(~empty, ~complete)
 
   let submitCallback = React.useCallback((ev: Window.event) => {
     let json = ev.data->safeParse
@@ -100,15 +103,21 @@ let make = () => {
         postFailedSubmitResponse(~errortype="validation_error", ~message="Please enter all fields")
       }
     }
-  }, (email, modalData, fullName, isManualRetryEnabled))
-  useSubmitPaymentData(submitCallback)
+  }, (email, modalData, fullName, isManualRetryEnabled, sdkAuthorization))
+  PaymentMessageHooks.useSubmitPaymentData(submitCallback)
+
+  let paymentMethodType = "ach"
+  let paymentMethod = "bank_debit"
 
   <>
     <RenderIf condition={isVerifyPMAuthConnectorConfigured}>
-      <AddBankDetails paymentMethodType="ach" />
+      <AddBankDetails paymentMethodType />
     </RenderIf>
     <RenderIf condition={!isVerifyPMAuthConnectorConfigured}>
       <div className="flex flex-col animate-slowShow" style={gridGap: themeObj.spacingGridColumn}>
+        <RenderIf condition={layoutClass.\"type" === Accordion}>
+          <Space height="0" />
+        </RenderIf>
         <FullNamePaymentInput />
         <EmailPaymentInput />
         <div className="flex flex-col">
@@ -126,8 +135,8 @@ let make = () => {
             </div>
           </RenderIf>
         </div>
-        <Surcharge paymentMethod="bank_debit" paymentMethodType="ach" />
-        <Terms mode=ACHBankDebit />
+        <Surcharge paymentMethod paymentMethodType />
+        <Terms paymentMethod paymentMethodType />
         <FullScreenPortal>
           <BankDebitModal setModalData />
         </FullScreenPortal>

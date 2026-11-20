@@ -1,7 +1,7 @@
 module CoBadgeCardSchemeDropDown = {
   @react.component
   let make = (~eligibleCardSchemes, ~setCardBrand) => {
-    let loggerState = Recoil.useRecoilValueFromAtom(RecoilAtoms.loggerAtom)
+    let loggerState = Jotai.useAtomValue(JotaiAtoms.loggerAtom)
     <select
       className="w-4"
       onClick={_ =>
@@ -22,7 +22,13 @@ module CoBadgeCardSchemeDropDown = {
 }
 
 @react.component
-let make = (~cardNumber, ~paymentType, ~cardBrand, ~setCardBrand) => {
+let make = (
+  ~cardNumber,
+  ~paymentType,
+  ~cardBrand,
+  ~setCardBrand,
+  ~isCoBadgedCardDetectedOnce: React.ref<bool>,
+) => {
   let cardType = React.useMemo1(_ => cardBrand->CardUtils.getCardType, [cardBrand])
   let animate = cardType == NOTFOUND ? "animate-slideLeft" : "animate-slideRight"
   let cardBrandIcon = React.useMemo1(
@@ -30,11 +36,15 @@ let make = (~cardNumber, ~paymentType, ~cardBrand, ~setCardBrand) => {
     [cardBrand],
   )
 
-  let paymentMethodListValue = Recoil.useRecoilValueFromAtom(PaymentUtils.paymentMethodListValue)
-  let enabledCardSchemes =
-    paymentMethodListValue->PaymentUtils.getSupportedCardBrands->Option.getOr([])
+  let paymentMethodListValue = Jotai.useAtomValue(PaymentUtils.paymentMethodListValue)
+  let forwardedSupportedCardBrands = Jotai.useAtomValue(JotaiAtoms.supportedCardBrands)
+  let enabledCardSchemes = switch forwardedSupportedCardBrands {
+  | Some(brands) => brands
+  | None => paymentMethodListValue->PaymentUtils.getSupportedCardBrands->Option.getOr([])
+  }
 
-  let matchedCardSchemes = cardNumber->CardUtils.clearSpaces->CardUtils.getAllMatchedCardSchemes
+  let matchedCardSchemes =
+    cardNumber->CardValidations.clearSpaces->CardValidations.getAllMatchedCardSchemes
 
   let eligibleCardSchemes = CardUtils.getEligibleCoBadgedCardSchemes(
     ~matchedCardSchemes,
@@ -45,10 +55,15 @@ let make = (~cardNumber, ~paymentType, ~cardBrand, ~setCardBrand) => {
 
   let marginLeft = isCardCoBadged ? "-ml-2" : ""
 
-  let loggerState = Recoil.useRecoilValueFromAtom(RecoilAtoms.loggerAtom)
-  let isCoBadgedCardDetectedOnce = React.useRef(false)
+  let loggerState = Jotai.useAtomValue(JotaiAtoms.loggerAtom)
+  let {layout} = Jotai.useAtomValue(JotaiAtoms.optionAtom)
+  let cardBrandIconSetting =
+    Jotai.useAtomValue(JotaiAtoms.cardBrandIconOverride)->Option.getOr(
+      CardUtils.getLayoutClass(layout).cardBrandIcon,
+    )
   let shouldShowCoBadgeCardSchemeDropDown =
-    isCardCoBadged && cardNumber->CardUtils.clearSpaces->String.length >= 16
+    isCardCoBadged && cardNumber->CardValidations.clearSpaces->String.length >= 16
+  let showCardBrandIcon = CardUtils.getCardBrandIconVisibility(cardBrandIconSetting, cardType)
 
   React.useEffect1(() => {
     if shouldShowCoBadgeCardSchemeDropDown && !isCoBadgedCardDetectedOnce.current {
@@ -59,7 +74,7 @@ let make = (~cardNumber, ~paymentType, ~cardBrand, ~setCardBrand) => {
   }, [shouldShowCoBadgeCardSchemeDropDown])
 
   <div className={`${animate} flex items-center ${marginLeft} hellow-rodl`}>
-    cardBrandIcon
+    <RenderIf condition={showCardBrandIcon}> cardBrandIcon </RenderIf>
     <RenderIf condition={shouldShowCoBadgeCardSchemeDropDown}>
       <CoBadgeCardSchemeDropDown eligibleCardSchemes setCardBrand />
     </RenderIf>

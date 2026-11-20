@@ -1,4 +1,4 @@
-open RecoilAtoms
+open JotaiAtoms
 open Utils
 
 let cleanSocialSecurityNumber = socialSecurityNumber =>
@@ -6,10 +6,10 @@ let cleanSocialSecurityNumber = socialSecurityNumber =>
 
 let formatSocialSecurityNumber = socialSecurityNumber => {
   let formatted = socialSecurityNumber->cleanSocialSecurityNumber
-  let firstPart = formatted->CardUtils.slice(0, 3)
-  let secondPart = formatted->CardUtils.slice(3, 6)
-  let thirdPart = formatted->CardUtils.slice(6, 9)
-  let fourthPart = formatted->CardUtils.slice(9, 11)
+  let firstPart = formatted->String.slice(~start=0, ~end=3)
+  let secondPart = formatted->String.slice(~start=3, ~end=6)
+  let thirdPart = formatted->String.slice(~start=6, ~end=9)
+  let fourthPart = formatted->String.slice(~start=9, ~end=11)
 
   if formatted->String.length <= 3 {
     firstPart
@@ -24,12 +24,12 @@ let formatSocialSecurityNumber = socialSecurityNumber => {
 
 @react.component
 let make = () => {
-  let loggerState = Recoil.useRecoilValueFromAtom(loggerAtom)
-  let {themeObj, localeString} = Recoil.useRecoilValueFromAtom(configAtom)
-  let {iframeId} = Recoil.useRecoilValueFromAtom(keys)
-  let isManualRetryEnabled = Recoil.useRecoilValueFromAtom(RecoilAtoms.isManualRetryEnabled)
+  let loggerState = Jotai.useAtomValue(loggerAtom)
+  let {themeObj, localeString} = Jotai.useAtomValue(configAtom)
+  let {iframeId, sdkAuthorization} = Jotai.useAtomValue(keys)
+  let isManualRetryEnabled = Jotai.useAtomValue(JotaiAtoms.isManualRetryEnabled)
   let intent = PaymentHelpers.usePaymentIntent(Some(loggerState), Other)
-  let setComplete = Recoil.useSetRecoilState(fieldsComplete)
+  let setComplete = Jotai.useSetAtom(fieldsComplete)
   let (socialSecurityNumber, setSocialSecurityNumber) = React.useState(_ => "")
 
   let (socialSecurityNumberError, setSocialSecurityNumberError) = React.useState(_ => "")
@@ -44,6 +44,7 @@ let make = () => {
   }, [socialSecurityNumber])
 
   UtilityHooks.useHandlePostMessages(~complete, ~empty, ~paymentType="boleto")
+  SubscriptionEventHooks.useEmitFormStatus(~empty, ~complete)
 
   React.useEffect(() => {
     setComplete(_ => complete)
@@ -70,8 +71,8 @@ let make = () => {
         postFailedSubmitResponse(~errortype="validation_error", ~message="Please enter all fields")
       }
     }
-  }, (socialSecurityNumber, isManualRetryEnabled))
-  useSubmitPaymentData(submitCallback)
+  }, (socialSecurityNumber, isManualRetryEnabled, sdkAuthorization))
+  PaymentMessageHooks.useSubmitPaymentData(submitCallback)
 
   let changeSocialSecurityNumber = ev => {
     let val = ReactEvent.Form.target(ev)["value"]
@@ -84,6 +85,9 @@ let make = () => {
       setSocialSecurityNumberError(_ => "The social security number entered is invalid.")
     }
   }
+
+  let paymentMethod = "voucher"
+  let paymentMethodType = "boleto"
 
   <div className="flex flex-col animate-slowShow" style={gridGap: themeObj.spacingGridColumn}>
     <PaymentInputField
@@ -98,8 +102,9 @@ let make = () => {
       inputRef=socialSecurityNumberRef
       placeholder="000.000.000-00"
     />
-    <Surcharge paymentMethod="voucher" paymentMethodType="boleto" />
+    <Surcharge paymentMethod paymentMethodType />
     <InfoElement />
+    <Terms paymentMethod paymentMethodType />
   </div>
 }
 

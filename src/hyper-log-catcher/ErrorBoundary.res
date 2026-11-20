@@ -95,7 +95,7 @@ let errorIcon = {
 module ErrorTextAndImage = {
   @react.component
   let make = (~divRef, ~level) => {
-    let {themeObj} = Recoil.useRecoilValueFromAtom(RecoilAtoms.configAtom)
+    let {themeObj} = Jotai.useAtomValue(JotaiAtoms.configAtom)
     let message = switch level {
     | Top => "We'll be back with you shortly :)"
     | _ => "Try another payment method :)"
@@ -158,8 +158,8 @@ module ErrorCard = {
           category: USER_ERROR,
           paymentId: "",
           merchantId: publishableKey,
-          browserName: HyperLogger.arrayOfNameAndVersion->Array.get(0)->Option.getOr("Others"),
-          browserVersion: HyperLogger.arrayOfNameAndVersion->Array.get(1)->Option.getOr("0"),
+          browserName: Utils.arrayOfNameAndVersion->Array.get(0)->Option.getOr("Others"),
+          browserVersion: Utils.arrayOfNameAndVersion->Array.get(1)->Option.getOr("0"),
           platform: Window.Navigator.platform,
           userAgent: Window.Navigator.userAgent,
           appId: "",
@@ -168,7 +168,6 @@ module ErrorCard = {
           paymentMethod: "",
           firstEvent: false,
           metadata: JSON.Encode.null,
-          ephemeralKey: "",
         }
         beaconApiCall([errorLog])
       }
@@ -176,7 +175,7 @@ module ErrorCard = {
     })
 
     let (divH, setDivH) = React.useState(_ => 0.0)
-    let (keys, _setKeys) = Recoil.useRecoilState(RecoilAtoms.keys)
+    let keys = Jotai.useAtomValue(JotaiAtoms.keys)
     let {iframeId} = keys
     let divRef = React.useRef(Nullable.null)
 

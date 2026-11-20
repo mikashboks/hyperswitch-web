@@ -1,4 +1,4 @@
-open RecoilAtoms
+open JotaiAtoms
 @react.component
 let make = (
   ~paymentOption: PaymentMethodsRecord.paymentFieldsInfo,
@@ -7,10 +7,10 @@ let make = (
   ~borderBottom: bool,
   ~borderRadiusStyle,
 ) => {
-  let {themeObj, localeString} = Recoil.useRecoilValueFromAtom(configAtom)
-  let {layout, customMethodNames} = Recoil.useRecoilValueFromAtom(optionAtom)
+  let {themeObj, localeString} = Jotai.useAtomValue(configAtom)
+  let {layout, customMethodNames} = Jotai.useAtomValue(optionAtom)
   let layoutClass = CardUtils.getLayoutClass(layout)
-  let (selectedOption, setSelectedOption) = Recoil.useRecoilState(selectedOptionAtom)
+  let (selectedOption, setSelectedOption) = Jotai.useAtom(selectedOptionAtom)
   let (
     accordionClass,
     accordionItemLabelClass,
@@ -52,18 +52,23 @@ let make = (
       <RenderIf condition=layoutClass.radios>
         <Radio checked=radioClass />
       </RenderIf>
-      <div className={`AccordionItemIcon ${accordionItemIconClass} flex items-center`}>
+      <div className={`AccordionItemIcon ${accordionItemIconClass} flex items-center relative`}>
         {switch icon {
         | Some(ele) => ele
         | None => React.string("<icon>")
         }}
+        <RenderIf condition={layoutClass.showCheckedIconForSelection && isActive}>
+          <div className="AccordionItemSelectionIcon absolute">
+            <Icon name="checked-selection" size=14 />
+          </div>
+        </RenderIf>
       </div>
       <div className={`AccordionItemLabel ${accordionItemLabelClass} flex items-center`}>
         {React.string(paymentOption.paymentMethodName === "card" ? localeString.card : displayName)}
       </div>
     </div>
     <RenderIf condition={selectedOption == paymentOption.paymentMethodName}>
-      <div className="mt-4 w-full"> {checkoutEle} </div>
+      <div className="w-full"> {checkoutEle} </div>
     </RenderIf>
   </div>
 }

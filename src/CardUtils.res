@@ -18,6 +18,7 @@ type cardProps = {
   isCardValid: option<bool>,
   setIsCardValid: (option<bool> => option<bool>) => unit,
   isCardSupported: option<bool>,
+  updateCardSupport: option<bool> => unit,
   cardNumber: string,
   changeCardNumber: JsxEvent.Form.t => unit,
   handleCardBlur: JsxEvent.Focus.t => unit,
@@ -27,6 +28,11 @@ type cardProps = {
   setCardError: (string => string) => unit,
   maxCardLength: int,
   cardBrand: string,
+  cardEligibilityError: option<string>,
+  updateCardEligibilityError: option<string> => unit,
+  eligibilitySurchargeDetails: option<EligibilityHelpers.eligibilitySurchargeDetails>,
+  eligibilityOfferDetails: option<EligibilityHelpers.eligibilityOfferDetails>,
+  isEligibilityPending: bool,
 }
 
 let useDefaultCardProps = () => {
@@ -35,6 +41,7 @@ let useDefaultCardProps = () => {
     isCardValid: None,
     setIsCardValid: _ => (),
     isCardSupported: None,
+    updateCardSupport: _ => (),
     cardNumber: "",
     changeCardNumber: _ => (),
     handleCardBlur: _ => (),
@@ -44,6 +51,11 @@ let useDefaultCardProps = () => {
     setCardError: _ => (),
     maxCardLength: 0,
     cardBrand: "",
+    cardEligibilityError: None,
+    updateCardEligibilityError: _ => (),
+    eligibilitySurchargeDetails: None,
+    eligibilityOfferDetails: None,
+    isEligibilityPending: false,
   }
 }
 
@@ -51,6 +63,7 @@ type expiryProps = {
   isExpiryValid: option<bool>,
   setIsExpiryValid: (option<bool> => option<bool>) => unit,
   cardExpiry: string,
+  setCardExpiry: (string => string) => unit,
   changeCardExpiry: JsxEvent.Form.t => unit,
   handleExpiryBlur: JsxEvent.Focus.t => unit,
   expiryRef: React.ref<Nullable.t<Dom.element>>,
@@ -65,6 +78,7 @@ let useDefaultExpiryProps = () => {
     isExpiryValid: None,
     setIsExpiryValid: _ => (),
     cardExpiry: "",
+    setCardExpiry: _ => (),
     changeCardExpiry: _ => (),
     handleExpiryBlur: _ => (),
     expiryRef,
@@ -85,6 +99,7 @@ type cvcProps = {
   onCvcKeyDown: ReactEvent.Keyboard.t => unit,
   cvcError: string,
   setCvcError: (string => string) => unit,
+  maxCVCLength: int,
 }
 
 let useDefaultCvcProps = () => {
@@ -100,6 +115,7 @@ let useDefaultCvcProps = () => {
     onCvcKeyDown: _ => (),
     cvcError: "",
     setCvcError: _ => (),
+    maxCVCLength: CardValidations.getobjFromCardPattern("").maxCVCLength,
   }
 }
 
@@ -145,7 +161,6 @@ type options = {timeZone: string}
 type dateTimeFormat = {resolvedOptions: unit => options}
 @val @scope("Intl") external dateTimeFormat: unit => dateTimeFormat = "DateTimeFormat"
 
-let toInt = val => val->Int.fromString->Option.getOr(0)
 let toString = val => val->Int.toString
 
 let getQueryParamsDictforKey = (searchParams, keyName) => {
@@ -154,14 +169,15 @@ let getQueryParamsDictforKey = (searchParams, keyName) => {
   searchParams
   ->String.split("&")
   ->Array.forEach(paramStr => {
-    let keyValArr = String.split(paramStr, "=")
-    let key = keyValArr->Array.get(0)->Option.getOr("")
-    let value = if keyValArr->Array.length > 0 {
-      keyValArr->Array.get(1)->Option.getOr("")
-    } else {
-      ""
+    let eqIndex = paramStr->String.indexOf("=")
+
+    if eqIndex != -1 {
+      let len = paramStr->String.length
+      let key = paramStr->String.slice(~start=0, ~end=eqIndex)
+      let value = paramStr->String.slice(~start=eqIndex + 1, ~end=len)
+
+      Dict.set(dict, key, value)
     }
-    Dict.set(dict, key, value)
   })
 
   dict->Dict.get(keyName)->Option.getOr("")
@@ -204,35 +220,38 @@ let getCardStringFromType = val => {
   }
 }
 
-let getobjFromCardPattern = cardBrand => {
-  let patternsDict = CardPattern.cardPatterns
-  patternsDict
-  ->Array.filter(item => {
-    cardBrand === item.issuer
-  })
-  ->Array.get(0)
-  ->Option.getOr(CardPattern.defaultCardPattern)
+let normalizeCardBrand = brand => {
+  let normalized =
+    brand
+    ->String.toLowerCase
+    ->String.replaceRegExp(%re("/[-_\s]/g"), "")
+  switch normalized {
+  | "visa" => "Visa"
+  | "mastercard" => "Mastercard"
+  | "americanexpress"
+  | "amex" => "AmericanExpress"
+  | "maestro" => "Maestro"
+  | "dinersclub"
+  | "diners" => "DinersClub"
+  | "discover" => "Discover"
+  | "bajaj" => "BAJAJ"
+  | "sodexo" => "SODEXO"
+  | "rupay" => "RuPay"
+  | "jcb" => "JCB"
+  | "cartesbancaires" => "CartesBancaires"
+  | "unionpay" => "UnionPay"
+  | "interac" => "Interac"
+  | _ => brand
+  }
 }
 
-let clearSpaces = value => {
-  value->String.replaceRegExp(%re("/\D+/g"), "")
-}
-
-let slice = (val, start: int, end: int) => {
-  val->String.slice(~start, ~end)
-}
-
-let getStrFromIndex = (arr: array<string>, index) => {
-  arr->Array.get(index)->Option.getOr("")
-}
-
-let formatCVCNumber = (val, cardType) => {
-  let clearValue = val->clearSpaces
-  let obj = getobjFromCardPattern(cardType)
-  clearValue->slice(0, obj.maxCVCLength)
+let getCardBrandDisplayName = cardBrand => {
+  let cardBrandString = cardBrand->getCardStringFromType
+  cardBrandString == "NOTFOUND" ? "Unknown" : cardBrandString
 }
 
 let getCurrentMonthAndYear = (dateTimeIsoString: string) => {
+  open CardValidations
   let tempTimeDateString = dateTimeIsoString->String.replace("Z", "")
   let tempTimeDate = tempTimeDateString->String.split("T")
 
@@ -246,9 +265,14 @@ let getCurrentMonthAndYear = (dateTimeIsoString: string) => {
 }
 
 let formatCardNumber = (val, cardType) => {
-  let clearValue = val->clearSpaces
+  open String
+  let clearValue = val->CardValidations.clearSpaces
   let formatedCard = switch cardType {
-  | AMEX => `${clearValue->slice(0, 4)} ${clearValue->slice(4, 10)} ${clearValue->slice(10, 15)}`
+  | AMEX =>
+    `${clearValue->slice(~start=0, ~end=4)} ${clearValue->slice(
+        ~start=4,
+        ~end=10,
+      )} ${clearValue->slice(~start=10, ~end=15)}`
   | DINERSCLUB
   | MASTERCARD
   | DISCOVER
@@ -256,31 +280,33 @@ let formatCardNumber = (val, cardType) => {
   | RUPAY
   | UNIONPAY
   | VISA =>
-    `${clearValue->slice(0, 4)} ${clearValue->slice(4, 8)} ${clearValue->slice(
-        8,
-        12,
-      )} ${clearValue->slice(12, 16)} ${clearValue->slice(16, 19)}`
+    `${clearValue->slice(~start=0, ~end=4)} ${clearValue->slice(
+        ~start=4,
+        ~end=8,
+      )} ${clearValue->slice(~start=8, ~end=12)} ${clearValue->slice(
+        ~start=12,
+        ~end=16,
+      )} ${clearValue->slice(~start=16, ~end=19)}`
   | _ =>
-    `${clearValue->slice(0, 4)} ${clearValue->slice(4, 8)} ${clearValue->slice(
-        8,
-        12,
-      )} ${clearValue->slice(12, 19)}`
+    `${clearValue->slice(~start=0, ~end=4)} ${clearValue->slice(
+        ~start=4,
+        ~end=8,
+      )} ${clearValue->slice(~start=8, ~end=12)} ${clearValue->slice(
+        ~start=12,
+        ~end=16,
+      )} ${clearValue->slice(~start=16, ~end=19)}`
   }
 
-  formatedCard->String.trim
+  formatedCard->trim
 }
-let splitExpiryDates = val => {
-  let split = val->String.split("/")
-  let value = split->Array.map(item => item->String.trim)
-  let month = value->Array.get(0)->Option.getOr("")
-  let year = value->Array.get(1)->Option.getOr("")
-  (month, year)
+let getExpiryYearPrefix = () => {
+  let date = Date.make()->Date.toISOString
+  let (_, currentYear) = getCurrentMonthAndYear(date)
+  currentYear->Int.toString->String.slice(~start=0, ~end=2)
 }
 let getExpiryDates = val => {
-  let date = Date.make()->Date.toISOString
-  let (month, year) = splitExpiryDates(val)
-  let (_, currentYear) = getCurrentMonthAndYear(date)
-  let prefix = currentYear->Int.toString->String.slice(~start=0, ~end=2)
+  let (month, year) = CardValidations.splitExpiryDates(val)
+  let prefix = getExpiryYearPrefix()
   (month, `${prefix}${year}`)
 }
 let formatExpiryToTwoDigit = expiry => {
@@ -292,27 +318,8 @@ let formatExpiryToTwoDigit = expiry => {
 }
 
 let isExpiryComplete = val => {
-  let (month, year) = splitExpiryDates(val)
+  let (month, year) = CardValidations.splitExpiryDates(val)
   month->String.length == 2 && year->String.length == 2
-}
-
-let formatCardExpiryNumber = val => {
-  let clearValue = val->clearSpaces
-  let expiryVal = clearValue->toInt
-  let formatted = if expiryVal >= 2 && expiryVal <= 9 && clearValue->String.length == 1 {
-    `0${clearValue} / `
-  } else if clearValue->String.length == 2 && expiryVal > 12 {
-    let val = clearValue->String.split("")
-    `0${val->getStrFromIndex(0)} / ${val->getStrFromIndex(1)}`
-  } else {
-    clearValue
-  }
-
-  if clearValue->String.length >= 3 {
-    `${formatted->slice(0, 2)} / ${formatted->slice(2, 4)}`
-  } else {
-    formatted
-  }
 }
 
 let getCardBrand = cardNumber => {
@@ -377,6 +384,7 @@ let getCardBrand = cardNumber => {
 }
 
 let calculateLuhn = value => {
+  open CardValidations
   let card = value->clearSpaces
   let splitArr = card->String.split("")
   splitArr->Array.reverse
@@ -426,7 +434,9 @@ let getCardBrandIcon = (cardType, paymentType) => {
   | INTERAC => <Icon size=brandIconSize name="interac" />
   | NOTFOUND =>
     switch paymentType {
-    | Payment => <Icon size=brandIconSize name="base-card" />
+    | Payment
+    | PaymentMethodsSDK =>
+      <Icon size=brandIconSize name="base-card" />
     | Card
     | CardNumberElement
     | CardExpiryElement
@@ -447,6 +457,7 @@ let getCardBrandIcon = (cardType, paymentType) => {
 }
 
 let getExpiryValidity = cardExpiry => {
+  open CardValidations
   let date = Date.make()->Date.toISOString
   let (month, year) = getExpiryDates(cardExpiry)
   let (currentMonth, currentYear) = getCurrentMonthAndYear(date)
@@ -469,6 +480,7 @@ let isExipryValid = val => {
 }
 
 let cardNumberInRange = (val, cardBrand) => {
+  open CardValidations
   let clearValue = val->clearSpaces
   let obj = getobjFromCardPattern(cardBrand)
   let cardLengthInRange = obj.length->Array.map(item => {
@@ -481,6 +493,7 @@ let max = (a, b) => {
 }
 
 let getMaxLength = val => {
+  open CardValidations
   let obj = getobjFromCardPattern(val)
   let maxValue = obj.length->Array.reduce(0, max)
   if maxValue <= 12 {
@@ -495,6 +508,7 @@ let getMaxLength = val => {
 }
 
 let cvcNumberInRange = (val, cardBrand) => {
+  open CardValidations
   let clearValue = val->clearSpaces
   let obj = getobjFromCardPattern(cardBrand)
   let cvcLengthInRange = obj.cvcLength->Array.map(item => {
@@ -532,21 +546,22 @@ let generateFontsLink = (fonts: array<CardThemeType.fonts>) => {
 }
 
 let maxCardLength = cardBrand => {
-  let obj = getobjFromCardPattern(cardBrand)
+  let obj = CardValidations.getobjFromCardPattern(cardBrand)
   Array.reduce(obj.length, 0, (acc, val) => max(acc, val))
 }
 
 let isCardLengthValid = (cardBrand, cardNumberLength) => {
-  let obj = getobjFromCardPattern(cardBrand)
+  let obj = CardValidations.getobjFromCardPattern(cardBrand)
   Array.includes(obj.length, cardNumberLength)
 }
 
 let cardValid = (cardNumber, cardBrand) => {
-  let clearValueLength = cardNumber->clearSpaces->String.length
+  let clearValueLength = cardNumber->CardValidations.clearSpaces->String.length
   isCardLengthValid(cardBrand, clearValueLength) && calculateLuhn(cardNumber)
 }
 
 let focusCardValid = (cardNumber, cardBrand) => {
+  open CardValidations
   let clearValueLength = cardNumber->clearSpaces->String.length
   if cardBrand == "" {
     clearValueLength == maxCardLength(cardBrand) && calculateLuhn(cardNumber)
@@ -576,41 +591,39 @@ let handleInputFocus = (
 }
 
 let getCardElementValue = (iframeId, key) => {
-  let firstIframeVal = if (Window.parent->Window.frames)["0"]->Window.name !== iframeId {
-    switch (Window.parent->Window.frames)["0"]
-    ->Window.document
-    ->Window.getElementById(key)
-    ->Nullable.toOption {
-    | Some(dom) => dom->Window.value
-    | None => ""
+  // Probe every parent frame, not a hardcoded 0-2: any foreign frame (e.g. a wallet payframe)
+  // shifts sibling indices, and touching a cross-origin frame throws - guard and skip it.
+  let frames = Window.parent->Window.frames
+  let framesCount = frames->Window.framesLength
+  let rec probe = index =>
+    if index >= framesCount {
+      ""
+    } else {
+      let probed = try {
+        let frame = frames->Window.frameAt(index)
+        if frame->Window.name !== iframeId {
+          switch frame
+          ->Window.document
+          ->Window.getElementById(key)
+          ->Nullable.toOption {
+          | Some(dom) => dom->Window.value
+          | None => ""
+          }
+        } else {
+          ""
+        }
+      } catch {
+      | exn =>
+        // A cross-origin frame is the expected case here; anything else is worth surfacing.
+        switch exn {
+        | Exn.Error(obj) if obj->Exn.name == Some("SecurityError") => ()
+        | _ => Console.warn2(`Skipped frame ${index->Int.toString} while reading ${key}`, exn)
+        }
+        ""
+      }
+      probed === "" ? probe(index + 1) : probed
     }
-  } else {
-    ""
-  }
-  let secondIframeVal = if (Window.parent->Window.frames)["1"]->Window.name !== iframeId {
-    switch (Window.parent->Window.frames)["1"]
-    ->Window.document
-    ->Window.getElementById(key)
-    ->Nullable.toOption {
-    | Some(dom) => dom->Window.value
-    | None => ""
-    }
-  } else {
-    ""
-  }
-
-  let thirdIframeVal = if (Window.parent->Window.frames)["2"]->Window.name !== iframeId {
-    switch (Window.parent->Window.frames)["2"]
-    ->Window.document
-    ->Window.getElementById(key)
-    ->Nullable.toOption {
-    | Some(dom) => dom->Window.value
-    | None => ""
-    }
-  } else {
-    ""
-  }
-  thirdIframeVal === "" ? secondIframeVal === "" ? firstIframeVal : secondIframeVal : thirdIframeVal
+  probe(0)
 }
 
 let checkCardCVC = (cvcNumber, cardBrand) => {
@@ -631,7 +644,7 @@ let commonKeyDownEvent = (ev, srcRef, destRef, srcEle, destEle, setEle) => {
   let key = ReactEvent.Keyboard.keyCode(ev)
   if key == 8 && srcEle == "" {
     handleInputFocus(~currentRef=srcRef, ~destinationRef=destRef)
-    setEle(_ => slice(destEle, 0, -1))
+    setEle(_ => destEle->String.slice(~start=0, ~end=-1))
     ev->ReactEvent.Keyboard.preventDefault
   }
 }
@@ -684,6 +697,17 @@ let getLayoutClass = layout => {
   }
 }
 
+let getCardBrandIconVisibility = (
+  cardBrandIconSetting: PaymentType.cardBrandIconStyle,
+  cardType,
+) => {
+  switch cardBrandIconSetting {
+  | Standard | Animated => true // Animated is reserved for future use; behaves like Standard for now
+  | Hidden => false
+  | HideGeneric => cardType != NOTFOUND
+  }
+}
+
 let getAllBanknames = obj => {
   obj->Array.reduce([], (acc, item) => {
     item->Array.map(val => acc->Array.push(val))->ignore
@@ -700,9 +724,17 @@ let postalRegex = (postalCodes: array<PostalCodeType.postalCodes>, ~country=?) =
   countryPostal.regex
 }
 
-let setRightIconForCvc = (~cardEmpty, ~cardInvalid, ~color, ~cardComplete) => {
+let setRightIconForCvc = (
+  ~cardEmpty,
+  ~cardInvalid,
+  ~color,
+  ~cardComplete,
+  ~cvcIcon: PaymentType.cvcIconStyle=Default,
+) => {
   open Utils
-  if cardEmpty {
+  if cvcIcon === Hidden {
+    React.null
+  } else if cardEmpty {
     <Icon size=brandIconSize name="cvc-empty" />
   } else if cardInvalid {
     <div style={color: color}>
@@ -739,6 +771,11 @@ let getWalletBrandIcon = (customerMethod: PaymentType.customerMethods) => {
 let getPaymentMethodBrand = (customerMethod: PaymentType.customerMethods) => {
   switch customerMethod.paymentMethod {
   | "wallet" => getWalletBrandIcon(customerMethod)
+  | "bank_redirect" =>
+    <Icon
+      size=Utils.brandIconSize
+      name={BankLogoResolver.resolveIconName(~bankName=customerMethod.bankRedirect.bankName)}
+    />
   | _ =>
     getCardBrandIcon(
       switch customerMethod.card.scheme {
@@ -750,23 +787,12 @@ let getPaymentMethodBrand = (customerMethod: PaymentType.customerMethods) => {
   }
 }
 
-let getAllMatchedCardSchemes = cardNumber => {
-  CardPattern.cardPatterns->Array.reduce([], (acc, item) => {
-    if String.match(cardNumber, item.pattern)->Option.isSome {
-      acc->Array.push(item.issuer)
-    }
-    acc
-  })
-}
-
-let isCardSchemeEnabled = (~cardScheme, ~enabledCardSchemes) => {
-  enabledCardSchemes->Array.includes(cardScheme)
-}
-
 let getFirstValidCardSchemeFromPML = (~cardNumber, ~enabledCardSchemes) => {
-  let allMatchedCards = getAllMatchedCardSchemes(cardNumber->clearSpaces)
+  let allMatchedCards = CardValidations.getAllMatchedCardSchemes(
+    cardNumber->CardValidations.clearSpaces,
+  )
   allMatchedCards->Array.find(card =>
-    isCardSchemeEnabled(~cardScheme=card->String.toLowerCase, ~enabledCardSchemes)
+    CardValidations.isCardSchemeEnabled(~cardScheme=card->String.toLowerCase, ~enabledCardSchemes)
   )
 }
 
@@ -776,8 +802,8 @@ let getEligibleCoBadgedCardSchemes = (~matchedCardSchemes, ~enabledCardSchemes) 
   })
 }
 
-let getCardBrandFromStates = (cardBrand, cardScheme, showFields) => {
-  !showFields ? cardScheme : cardBrand
+let getCardBrandFromStates = (cardBrand, cardScheme, showPaymentMethodsScreen) => {
+  !showPaymentMethodsScreen ? cardScheme : cardBrand
 }
 
 let getCardBrandInvalidError = (~cardBrand, ~localeString: LocaleStringTypes.localeStrings) => {
@@ -787,10 +813,23 @@ let getCardBrandInvalidError = (~cardBrand, ~localeString: LocaleStringTypes.loc
   }
 }
 
-let emitExpiryDate = formattedExpiry =>
-  Utils.messageParentWindow([("expiryDate", formattedExpiry->JSON.Encode.string)])
+let emitExpiryDate = (~targetOrigin="*", formattedExpiry) =>
+  Utils.messageParentWindow([("expiryDate", formattedExpiry->JSON.Encode.string)], ~targetOrigin)
 
 let emitIsFormReadyForSubmission = isFormReadyForSubmission =>
   Utils.messageParentWindow([
     ("isFormReadyForSubmission", isFormReadyForSubmission->JSON.Encode.bool),
   ])
+
+let getCardBin = cardNumber =>
+  cardNumber->CardValidations.clearSpaces->String.substring(~start=0, ~end=6)
+
+let getCardLast4 = cardNumber => {
+  let clearValue = cardNumber->CardValidations.clearSpaces
+  let len = clearValue->String.length
+  if len >= 4 {
+    clearValue->String.sliceToEnd(~start=len - 4)
+  } else {
+    clearValue
+  }
+}

@@ -21,25 +21,43 @@ let paymentMode = str => {
 module WalletsSaveDetailsText = {
   @react.component
   let make = () => {
-    open RecoilAtoms
-    let {isGooglePay, isApplePay, isPaypal, isSamsungPay} = Recoil.useRecoilValueFromAtom(
+    open JotaiAtoms
+    let {isGooglePay, isApplePay, isPaypal, isSamsungPay} = Jotai.useAtomValue(
       areOneClickWalletsRendered,
     )
-    let {localeString} = Recoil.useRecoilValueFromAtom(configAtom)
+    let {localeString} = Jotai.useAtomValue(configAtom)
     let isGuestCustomer = UtilityHooks.useIsGuestCustomer()
-    let paymentMethodListValue = Recoil.useRecoilValueFromAtom(PaymentUtils.paymentMethodListValue)
+    let paymentMethodListValue = Jotai.useAtomValue(PaymentUtils.paymentMethodListValue)
+    let {alwaysSendCustomerAcceptance} = Jotai.useAtomValue(optionAtom)
+    let walletMessageConfig = CustomPaymentMethodsConfig.useCustomPaymentMethodConfigs(
+      ~paymentMethod="wallet",
+    )
 
-    <RenderIf
-      condition={PaymentUtils.isAppendingCustomerAcceptance(
+    let shouldRender =
+      PaymentUtils.isAppendingCustomerAcceptance(
         ~isGuestCustomer,
         ~paymentType=paymentMethodListValue.payment_type,
+        ~alwaysSend=alwaysSendCustomerAcceptance,
       ) &&
-      (isGooglePay || isApplePay || isPaypal || isSamsungPay)}>
-      <div
-        className="SaveWalletDetailsLabel flex items-center text-xs mt-2 text-left text-gray-400">
-        <Icon name="lock" size=10 className="mr-1" />
-        <em> {localeString.saveWalletDetails->React.string} </em>
-      </div>
+      (isGooglePay || isApplePay || isPaypal || isSamsungPay) &&
+      walletMessageConfig.displayMode !== Hidden
+
+    <RenderIf condition={shouldRender}>
+      {switch walletMessageConfig.displayMode {
+      | CustomMessage =>
+        let msg = walletMessageConfig.value->Option.getOr("")->String.trim
+        <RenderIf condition={msg->String.length > 0}>
+          <div className="SaveWalletDetailsLabel text-xs mt-2 text-left text-gray-400">
+            <em> {msg->React.string} </em>
+          </div>
+        </RenderIf>
+      | _ =>
+        <div
+          className="SaveWalletDetailsLabel flex items-center text-xs mt-2 text-left text-gray-400">
+          <Icon name="lock" size=10 className="mr-1" />
+          <em> {localeString.saveWalletDetails->React.string} </em>
+        </div>
+      }}
     </RenderIf>
   }
 }
@@ -47,16 +65,23 @@ module WalletsSaveDetailsText = {
 @react.component
 let make = (~sessions, ~walletOptions) => {
   open SessionsType
+  open PayPalHelpers
   let dict = sessions->Utils.getDictFromJson
-  let paymentMethodListValue = Recoil.useRecoilValueFromAtom(PaymentUtils.paymentMethodListValue)
+  let paymentMethodListValue = Jotai.useAtomValue(PaymentUtils.paymentMethodListValue)
 
   let sessionObj = React.useMemo(() => itemToObjMapper(dict, Others), [dict])
 
-  let {
-    paypalToken,
-    isPaypalSDKFlow,
-    isPaypalRedirectFlow,
-  } = PayPalHelpers.usePaymentMethodExperience(~paymentMethodListValue, ~sessionObj)
+  let trustPayScriptStatus = Jotai.useAtomValue(JotaiAtoms.trustPayScriptStatus)
+  let isApplePayReady = Jotai.useAtomValue(JotaiAtoms.isApplePayReady)
+
+  let isApplePayDelayedSessionFlow = ThirdPartyFlowHelpers.useIsApplePayDelayedSessionFlow()
+  let isGooglePayDelayedSessionFlow = ThirdPartyFlowHelpers.useIsGooglePayDelayedSessionFlow()
+  let setIsShowOrPayUsingWhileLoading = Jotai.useSetAtom(JotaiAtoms.isShowOrPayUsingWhileLoading)
+
+  let {paypalToken, isPaypalSDKFlow, isPaypalRedirectFlow} = usePaymentMethodData(
+    ~paymentMethodListValue,
+    ~sessionObj,
+  )
 
   let gPayToken = getPaymentSessionObj(sessionObj.sessionsToken, Gpay)
   let applePaySessionObj = itemToObjMapper(dict, ApplePayObject)
@@ -71,6 +96,25 @@ let make = (~sessions, ~walletOptions) => {
     Gpay,
   )
 
+  React.useEffect(() => {
+    let isTrustPayScriptLoading = trustPayScriptStatus === Loading
+    let isApplePayThirdPartyLoading =
+      isApplePayDelayedSessionFlow && isApplePayReady && isTrustPayScriptLoading
+
+    let isGooglePayThirdPartyLoading = isGooglePayDelayedSessionFlow && isTrustPayScriptLoading
+    if isGooglePayThirdPartyLoading || isApplePayThirdPartyLoading {
+      setIsShowOrPayUsingWhileLoading(_ => true)
+    } else {
+      setIsShowOrPayUsingWhileLoading(_ => false)
+    }
+    None
+  }, (
+    isGooglePayDelayedSessionFlow,
+    isApplePayDelayedSessionFlow,
+    isApplePayReady,
+    trustPayScriptStatus,
+  ))
+
   let {isKlarnaSDKFlow, isKlarnaCheckoutFlow} = KlarnaHelpers.usePaymentMethodExperience(
     ~paymentMethodListValue,
     ~sessionObj,
@@ -79,8 +123,9 @@ let make = (~sessions, ~walletOptions) => {
   let klarnaTokenObj = getPaymentSessionObj(sessionObj.sessionsToken, Klarna)
   let pazeTokenObj = getPaymentSessionObj(sessionObj.sessionsToken, Paze)
 
-  let {clientSecret} = Recoil.useRecoilValueFromAtom(RecoilAtoms.keys)
-  let options = Recoil.useRecoilValueFromAtom(RecoilAtoms.optionAtom)
+  let {clientSecret} = Jotai.useAtomValue(JotaiAtoms.keys)
+  let options = Jotai.useAtomValue(JotaiAtoms.optionAtom)
+  let isTestMode = Jotai.useAtomValue(JotaiAtoms.isTestMode)
 
   <div role="region" ariaLabel="Wallet Section" className="flex flex-col gap-2 h-auto w-full">
     {walletOptions
@@ -93,9 +138,8 @@ let make = (~sessions, ~walletOptions) => {
           loaderComponent={<WalletShimmer />}
           componentName="PaymentRequestButtonElement"
           key={i->Int.toString}>
-          {switch clientSecret {
-          | Some(_) =>
-            switch item->paymentMode {
+          <RenderIf condition={clientSecret->Option.isSome || isTestMode}>
+            {switch item->paymentMode {
             | GPayWallet =>
               <SessionPaymentWrapper type_={Wallet}>
                 {switch gPayToken {
@@ -166,9 +210,8 @@ let make = (~sessions, ~walletOptions) => {
                 </SessionPaymentWrapper>
               </RenderIf>
             | NONE => React.null
-            }
-          | None => React.null
-          }}
+            }}
+          </RenderIf>
         </ReusableReactSuspense>
       </ErrorBoundary>
     })

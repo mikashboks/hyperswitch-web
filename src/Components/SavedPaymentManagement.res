@@ -1,7 +1,4 @@
 @react.component
-let make = (~savedMethods: array<PaymentType.customerMethods>, ~setSavedMethods) => {
-  switch GlobalVars.sdkVersion {
-  | V1 => <SavedMethodsV1 savedMethods setSavedMethods />
-  | V2 => <SavedMethodsV2 />
-  }
+let make = (~cvcProps: CardUtils.cvcProps) => {
+  <SavedMethodsV2 cvcProps />
 }

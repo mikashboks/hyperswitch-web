@@ -1,10 +1,10 @@
-open RecoilAtoms
+open JotaiAtoms
 module Loader = {
   @react.component
   let make = (~cardShimmerCount) => {
-    let paymentMethodList = Recoil.useRecoilValueFromAtom(paymentMethodList)
-    let {themeObj} = Recoil.useRecoilValueFromAtom(configAtom)
-    let {layout} = Recoil.useRecoilValueFromAtom(optionAtom)
+    let paymentMethodList = Jotai.useAtomValue(paymentMethodList)
+    let {themeObj} = Jotai.useAtomValue(configAtom)
+    let {layout} = Jotai.useAtomValue(optionAtom)
     let layoutClass = CardUtils.getLayoutClass(layout)
     open PaymentType
     open PaymentElementShimmer
@@ -61,29 +61,45 @@ let make = (
   ~paymentOptions: array<string>,
   ~checkoutEle: React.element,
   ~cardProps: CardUtils.cardProps,
+  ~expiryProps: CardUtils.expiryProps,
+  ~cvcProps: CardUtils.cvcProps,
 ) => {
-  let {themeObj} = Recoil.useRecoilValueFromAtom(configAtom)
-  let paymentMethodList = Recoil.useRecoilValueFromAtom(paymentMethodList)
-  let {layout} = Recoil.useRecoilValueFromAtom(optionAtom)
+  let {themeObj, localeString} = Jotai.useAtomValue(configAtom)
+  let paymentMethodList = Jotai.useAtomValue(paymentMethodList)
+  let {layout} = Jotai.useAtomValue(optionAtom)
   let layoutClass = CardUtils.getLayoutClass(layout)
   let (showMore, setShowMore) = React.useState(_ => false)
-  let (selectedOption, setSelectedOption) = Recoil.useRecoilState(selectedOptionAtom)
-  let paymentMethodListValue = Recoil.useRecoilValueFromAtom(PaymentUtils.paymentMethodListValue)
-  let {cardBrand} = cardProps
+  let (selectedOption, setSelectedOption) = Jotai.useAtom(selectedOptionAtom)
+  let paymentMethodListValue = Jotai.useAtomValue(PaymentUtils.paymentMethodListValue)
+  let {
+    displayInSeparateScreen,
+    groupByPaymentMethods,
+  } = layoutClass.savedMethodCustomization.groupingBehavior
+  let groupSavedMethodsSeparately = !displayInSeparateScreen && !groupByPaymentMethods
 
   PaymentUtils.useEmitPaymentMethodInfo(
     ~paymentMethodName=selectedOption,
     ~paymentMethods=paymentMethodListValue.payment_methods,
-    ~cardBrand,
+    ~cardProps,
+    ~expiryProps,
+    ~cvcProps,
+    ~skipCard=true,
   )
+  SubscriptionEventHooks.useEmitPaymentMethodStatus(
+    ~paymentMethodName=selectedOption,
+    ~paymentMethods=paymentMethodListValue.payment_methods,
+    ~isSavedPaymentMethod=false,
+    ~isOneClickWallet=false,
+  )
+  SubscriptionEventHooks.useEmitBillingAddress()
 
   let cardOptionDetails =
     paymentOptions
-    ->PaymentMethodsRecord.getPaymentDetails
+    ->PaymentMethodsRecord.getPaymentDetails(~localeString)
     ->Array.slice(~start=0, ~end=layoutClass.maxAccordionItems)
   let dropDownOptionsDetails =
     paymentOptions
-    ->PaymentMethodsRecord.getPaymentDetails
+    ->PaymentMethodsRecord.getPaymentDetails(~localeString)
     ->Array.sliceToEnd(~start=layoutClass.maxAccordionItems)
 
   let getBorderRadiusStyleForCardOptionDetails = index => {
@@ -126,7 +142,15 @@ let make = (
   }
 
   React.useEffect0(() => {
-    layoutClass.defaultCollapsed ? setSelectedOption(_ => "") : ()
+    let shouldAutoOpenSavedMethods =
+      !layoutClass.savedMethodCustomization.defaultCollapsed &&
+      groupSavedMethodsSeparately &&
+      paymentOptions->Array.includes("saved_methods")
+    if layoutClass.defaultCollapsed {
+      setSelectedOption(_ => shouldAutoOpenSavedMethods ? "saved_methods" : "")
+    } else {
+      ()
+    }
     None
   })
   <div className="w-full">

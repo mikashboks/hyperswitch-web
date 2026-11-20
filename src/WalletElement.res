@@ -1,25 +1,37 @@
 @react.component
 let make = (~paymentType) => {
-  let sessionsObj = Recoil.useRecoilValueFromAtom(RecoilAtoms.sessions)
-  let methodslist = Recoil.useRecoilValueFromAtom(RecoilAtoms.paymentMethodList)
+  let sessionsObj = Jotai.useAtomValue(JotaiAtoms.sessions)
+  let methodslist = Jotai.useAtomValue(JotaiAtoms.paymentMethodList)
   let (sessions, setSessions) = React.useState(_ => Dict.make()->JSON.Encode.object)
   let (walletOptions, setWalletOptions) = React.useState(_ => [])
-  let {publishableKey} = Recoil.useRecoilValueFromAtom(RecoilAtoms.keys)
+  let {publishableKey} = Jotai.useAtomValue(JotaiAtoms.keys)
 
-  let setPaymentMethodListValue = Recoil.useSetRecoilState(PaymentUtils.paymentMethodListValue)
+  let setPaymentMethodListValue = Jotai.useSetAtom(PaymentUtils.paymentMethodListValue)
 
+  let areAllApplePayRequiredFieldsPrefilled = DynamicFieldsUtils.useAreWalletRequiredFieldsPrefilled(
+    ~paymentMethodType="apple_pay",
+  )
+  let areAllGooglePayRequiredFieldsPrefilled = DynamicFieldsUtils.useAreWalletRequiredFieldsPrefilled(
+    ~paymentMethodType="google_pay",
+  )
+  let areAllPaypalRequiredFieldsPrefilled = DynamicFieldsUtils.useAreWalletRequiredFieldsPrefilled(
+    ~paymentMethodType="paypal",
+  )
   let (walletList, _, _) = PaymentUtils.useGetPaymentMethodList(
-    ~paymentOptions=[],
     ~paymentType,
     ~sessions,
+    ~areAllApplePayRequiredFieldsPrefilled,
+    ~areAllGooglePayRequiredFieldsPrefilled,
+    ~areAllPaypalRequiredFieldsPrefilled,
   )
 
   React.useEffect(() => {
     switch methodslist {
     | Loaded(paymentlist) =>
-      let plist = paymentlist->Utils.getDictFromJson->PaymentMethodsRecord.itemToObjMapper
+      let pList =
+        paymentlist->Utils.getDictFromJson->PaymentMethodsRecord.itemToObjMapperFromClientList
       setWalletOptions(_ => walletList)
-      setPaymentMethodListValue(_ => plist)
+      setPaymentMethodListValue(_ => pList)
     | _ => ()
     }
     None

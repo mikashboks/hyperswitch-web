@@ -5,6 +5,7 @@ type classes = {
   empty: string,
   focus: string,
   invalid: string,
+  valid: string,
   webkitAutofill: string,
 }
 type rec styleClass = {
@@ -55,6 +56,8 @@ type options = {
   hideIcon: bool,
   showIcon: bool,
   disabled: bool,
+  placeholder: string,
+  showError: bool,
 }
 let getIconStyle = str => {
   switch str {
@@ -73,6 +76,7 @@ let defaultClasses = {
   empty: "OrcaElement--empty",
   focus: "OrcaElement--focus",
   invalid: "OrcaElement--invalid",
+  valid: "OrcaElement--valid",
   webkitAutofill: "OrcaElement--webkit-autofill",
 }
 let defaultStyleClass = {
@@ -121,6 +125,8 @@ let defaultOptions = {
   hideIcon: false,
   showIcon: false,
   disabled: false,
+  placeholder: "",
+  showError: true,
 }
 let getClasses = (str, dict, logger) => {
   dict
@@ -133,6 +139,7 @@ let getClasses = (str, dict, logger) => {
       empty: getWarningString(json, "empty", "OrcaElement--empty", ~logger),
       focus: getWarningString(json, "focus", "OrcaElement--focus", ~logger),
       invalid: getWarningString(json, "invalid", "OrcaElement--invalid", ~logger),
+      valid: getWarningString(json, "valid", "OrcaElement--valid", ~logger),
       webkitAutofill: getWarningString(
         json,
         "webkitAutofill",
@@ -230,6 +237,8 @@ let itemToObjMapper = (dict, logger) => {
       "hideIcon",
       "showIcon",
       "disabled",
+      "placeholder",
+      "showError",
     ],
     dict,
     "options",
@@ -244,5 +253,7 @@ let itemToObjMapper = (dict, logger) => {
     hideIcon: getBoolWithWarning(dict, "hideIcon", false, ~logger),
     showIcon: getBoolWithWarning(dict, "showIcon", false, ~logger),
     disabled: getBoolWithWarning(dict, "disabled", false, ~logger),
+    placeholder: getWarningString(dict, "placeholder", "", ~logger),
+    showError: getBoolWithWarning(dict, "showError", true, ~logger),
   }
 }

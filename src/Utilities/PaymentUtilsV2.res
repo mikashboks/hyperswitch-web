@@ -19,13 +19,8 @@ let paymentListLookupNew = (~paymentMethodListValue: paymentMethodsManagement) =
     "mifinity",
   ]
   let otherPaymentList = []
-
   paymentMethodListValue.paymentMethodsEnabled->Array.forEach(item => {
-    if walletToBeDisplayedInTabs->Array.includes(item.paymentMethodType) {
-      otherPaymentList->Array.push(item.paymentMethodType)->ignore
-    } else if item.paymentMethodType == "bank_redirect" {
-      otherPaymentList->Array.push(item.paymentMethodSubtype)->ignore
-    } else if item.paymentMethodType == "card" {
+    if item.paymentMethodType == "card" {
       otherPaymentList->Array.push("card")->ignore
     }
   })
@@ -36,25 +31,24 @@ let paymentListLookupNew = (~paymentMethodListValue: paymentMethodsManagement) =
   }
 }
 
-let useGetPaymentMethodListV2 = (~paymentOptions, ~paymentType: CardThemeType.mode) => {
+let useGetPaymentMethodListV2 = (~paymentOptions) => {
   open Utils
-  let methodslist = Recoil.useRecoilValueFromAtom(RecoilAtomsV2.paymentManagementList)
-  let paymentsList = Recoil.useRecoilValueFromAtom(RecoilAtomsV2.paymentMethodsListV2)
+  let methodslist = Jotai.useAtomValue(JotaiAtomsV2.paymentManagementList)
+
+  let resolvePaymentList = list => {
+    switch list {
+    | LoadedV2(paymentlist) =>
+      let {otherPaymentList} = paymentListLookupNew(~paymentMethodListValue=paymentlist)
+      let payments = [...paymentOptions, ...otherPaymentList]->removeDuplicate
+
+      (payments, otherPaymentList)
+    | _ => ([], [])
+    }
+  }
 
   React.useMemo(() => {
-    let resolvePaymentList = list =>
-      switch list {
-      | LoadedV2(paymentlist) =>
-        let {otherPaymentList} = paymentListLookupNew(~paymentMethodListValue=paymentlist)
-        ([...paymentOptions, ...otherPaymentList]->removeDuplicate, otherPaymentList)
-      | _ => ([], [])
-      }
-
-    switch paymentType {
-    | Payment => resolvePaymentList(paymentsList)
-    | _ => resolvePaymentList(methodslist)
-    }
-  }, (methodslist, paymentType))
+    resolvePaymentList(methodslist)
+  }, [methodslist])
 }
 
 let getCreditFieldsRequired = (~paymentManagementListValue: paymentMethodsManagement) => {
@@ -63,20 +57,24 @@ let getCreditFieldsRequired = (~paymentManagementListValue: paymentMethodsManage
   })
 }
 
-let getSupportedCardBrandsV2 = (paymentsListValue: paymentMethodsManagement) => {
-  let cardPaymentMethod =
-    paymentsListValue.paymentMethodsEnabled->Array.find(ele => ele.paymentMethodType === "card")
+let getPaymentMethodTypeFromListV2 = (~paymentsListValueV2, ~paymentMethod, ~paymentMethodType) => {
+  open UnifiedHelpersV2
+  paymentsListValueV2.paymentMethodsEnabled
+  ->Array.find(item => {
+    item.paymentMethodSubtype === paymentMethodType && item.paymentMethodType === paymentMethod
+  })
+  ->Option.getOr(defaultPaymentMethods)
+}
 
-  switch cardPaymentMethod {
-  | Some(cardPaymentMethod) =>
-    let cardNetworks = cardPaymentMethod.cardNetworks->Option.getOr([])
-    let cardNetworkNames =
-      cardNetworks->Array.map(ele =>
-        ele.cardNetwork->CardUtils.getCardStringFromType->String.toLowerCase
-      )
-
-    cardNetworkNames->Array.length > 0 ? Some(cardNetworkNames) : None
-
-  | None => None
-  }
+let usePaymentMethodTypeFromListV2 = (~paymentsListValueV2, ~paymentMethod, ~paymentMethodType) => {
+  React.useMemo(() => {
+    getPaymentMethodTypeFromListV2(
+      ~paymentsListValueV2,
+      ~paymentMethod,
+      ~paymentMethodType=PaymentUtils.getPaymentMethodName(
+        ~paymentMethodType=paymentMethod,
+        ~paymentMethodName=paymentMethodType,
+      ),
+    )
+  }, (paymentsListValueV2, paymentMethod, paymentMethodType))
 }

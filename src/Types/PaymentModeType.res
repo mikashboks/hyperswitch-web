@@ -26,7 +26,9 @@ type payment =
   | Boleto
   | PayPal
   | EFT
-  | NONE
+  | Givex
+  | SavedMethods
+  | Unknown
 
 let paymentMode = str => {
   switch str {
@@ -57,11 +59,14 @@ let paymentMode = str => {
   | "boleto" => Boleto
   | "paypal" => PayPal
   | "eft" => EFT
-  | _ => NONE
+  | "givex" => Givex
+  | "saved_methods" => SavedMethods
+  | _ => Unknown
   }
 }
 
 let defaultOrder = [
+  "saved_methods",
   "card",
   "apple_pay",
   "google_pay",
@@ -89,4 +94,5 @@ let defaultOrder = [
   "boleto",
   "eft",
   "revolut_pay",
+  "givex",
 ]

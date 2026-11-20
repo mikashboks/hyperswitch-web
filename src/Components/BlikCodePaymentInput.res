@@ -1,16 +1,15 @@
-open RecoilAtoms
+open JotaiAtoms
 open Utils
 
 @react.component
 let make = () => {
-  let loggerState = Recoil.useRecoilValueFromAtom(loggerAtom)
-  let (blikCode, setblikCode) = Recoil.useLoggedRecoilState(userBlikCode, "blikCode", loggerState)
+  let (blikCode, setblikCode) = Jotai.useAtom(userBlikCode)
 
   let blikCodeRef = React.useRef(Nullable.null)
   let formatBSB = bsb => {
     let formatted = bsb->String.replaceRegExp(%re("/\D+/g"), "")
-    let firstPart = formatted->CardUtils.slice(0, 3)
-    let secondPart = formatted->CardUtils.slice(3, 6)
+    let firstPart = formatted->String.slice(~start=0, ~end=3)
+    let secondPart = formatted->String.slice(~start=3, ~end=6)
 
     if formatted->String.length <= 3 {
       firstPart
@@ -52,7 +51,7 @@ let make = () => {
       }
     }
   }, [blikCode])
-  useSubmitPaymentData(submitCallback)
+  PaymentMessageHooks.useSubmitPaymentData(submitCallback)
 
   <RenderIf condition={true}>
     <PaymentField

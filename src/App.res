@@ -4,7 +4,7 @@ let make = () => {
 
   let url = RescriptReactRouter.useUrl()
   let (integrateError, setIntegrateErrorError) = React.useState(() => false)
-  let setLoggerState = Recoil.useSetRecoilState(RecoilAtoms.loggerAtom)
+  let setLoggerState = Jotai.useSetAtom(JotaiAtoms.loggerAtom)
 
   let paymentMode = getQueryParamsDictforKey(url.search, "componentName")
   let paymentType = paymentMode->CardThemeType.getPaymentMode
@@ -35,8 +35,12 @@ let make = () => {
     None
   }, [logger])
 
+  let isParentMessage = PaymentMessageHooks.useParentMessageCheck(~isInitialization=dict =>
+    dict->Utils.getDictIsSome("paymentElementCreate") ||
+      dict->Utils.getBool("fullScreenIframeMounted", false)
+  )
   React.useEffect0(() => {
-    let handleMetaDataPostMessage = (ev: Window.event) => {
+    let processMetaDataPostMessage = (ev: Window.event) => {
       let json = ev.data->Utils.safeParse
       let dict = json->Utils.getDictFromJson
 
@@ -62,6 +66,32 @@ let make = () => {
         | None => ()
         }
       }
+
+      let appearanceJson = if dict->Utils.getDictIsSome("paymentElementCreate") {
+        dict->Utils.getDictFromObj("paymentOptions")->Dict.get("appearance")
+      } else if dict->Utils.getDictIsSome("fullScreenIframeMounted") {
+        dict->Dict.get("appearance")
+      } else if dict->Utils.getDictIsSome("ElementsUpdate") {
+        dict->Utils.getDictFromObj("options")->Dict.get("appearance")
+      } else {
+        None
+      }
+
+      switch appearanceJson {
+      | Some(appearanceJson) =>
+        let colorScheme =
+          appearanceJson
+          ->Utils.getDictFromJson
+          ->Utils.getString("colorScheme", "light")
+          ->CardTheme.getColorScheme
+        CardTheme.setColorSchemeMeta(colorScheme)
+      | None => ()
+      }
+    }
+    let handleMetaDataPostMessage = (ev: Window.event) => {
+      if isParentMessage(ev) {
+        processMetaDataPostMessage(ev)
+      }
     }
     Window.addEventListener("message", handleMetaDataPostMessage)
     Some(() => Window.removeEventListener("message", handleMetaDataPostMessage))
@@ -71,6 +101,14 @@ let make = () => {
   | "paymentMethodCollect" =>
     <LoaderController paymentMode setIntegrateErrorError logger initTimestamp>
       <PaymentMethodCollectElement integrateError logger />
+    </LoaderController>
+  | "paymentMethodsSDK" =>
+    <LoaderController paymentMode setIntegrateErrorError logger initTimestamp>
+      <PaymentMethodsSDK />
+    </LoaderController>
+  | "cardFormCoordinator" =>
+    <LoaderController paymentMode setIntegrateErrorError logger initTimestamp>
+      <CardFormCoordinator />
     </LoaderController>
   | _ =>
     switch fullscreenMode {
@@ -89,14 +127,11 @@ let make = () => {
     | "voucherData" => <VoucherDisplay />
     | "3dsRedirectionPopup" => <ThreeDSRedirectionModal />
     | "preMountLoader" => {
-        let paymentId = getQueryParamsDictforKey(url.search, "paymentId")
+        let sdkAuthorization = getQueryParamsDictforKey(url.search, "sdkAuthorization")
         let clientSecret = getQueryParamsDictforKey(url.search, "clientSecret")
         let sessionId = getQueryParamsDictforKey(url.search, "sessionId")
         let publishableKey = getQueryParamsDictforKey(url.search, "publishableKey")
-        let profileId = getQueryParamsDictforKey(url.search, "profileId")
         let endpoint = getQueryParamsDictforKey(url.search, "endpoint")
-        let ephemeralKey = getQueryParamsDictforKey(url.search, "ephemeralKey")
-        let pmClientSecret = getQueryParamsDictforKey(url.search, "pmClientSecret")
         let pmSessionId = getQueryParamsDictforKey(url.search, "pmSessionId")
         let hyperComponentName =
           getQueryParamsDictforKey(
@@ -105,20 +140,22 @@ let make = () => {
           )->Types.getHyperComponentNameFromStr
         let merchantHostname = getQueryParamsDictforKey(url.search, "merchantHostname")
         let customPodUri = getQueryParamsDictforKey(url.search, "customPodUri")
+        let isTestMode = getQueryParamsDictforKey(url.search, "isTestMode") === "true"
+        let isSdkParamsEnabled =
+          getQueryParamsDictforKey(url.search, "isSdkParamsEnabled") === "true"
 
         <PreMountLoader
           publishableKey
-          profileId
           sessionId
+          sdkAuthorization
           clientSecret
-          paymentId
           endpoint
-          ephemeralKey
           pmSessionId
-          pmClientSecret
           hyperComponentName
           merchantHostname
           customPodUri
+          isTestMode
+          isSdkParamsEnabled
         />
       }
     | "achBankTransfer"

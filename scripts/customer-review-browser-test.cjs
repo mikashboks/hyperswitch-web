@@ -1,14 +1,14 @@
 // Real intentCall + React status component, synthetic HTTP only. Run after rescript.
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),os=require('node:os');
 const webpack=require('webpack');
-const {chromium}=require('../../hyperswitch-control-center/node_modules/playwright');
+const {chromium}=require(process.env.PLAYWRIGHT_MODULE || '../../hyperswitch-control-center/node_modules/playwright');
 const repo=path.resolve(__dirname,'..'),origin='https://customer-review.fixture';
 const output=fs.mkdtempSync(path.join(os.tmpdir(),'customer-review-ui-'));
 let browser,passed=0;
 const valid=()=>({id:'pay_a',profile_id:'profile_a',status:'review',customer_review:{schema_version:1,state:'under_review',as_of:'2026-11-18T00:00:00Z',message:'Your payment is being checked. Check this payment before paying again.',actions:['check_existing_payment','contact_support']}});
 async function main(){
-  const values={repoName:'fixture',repoVersion:'fixture',publicPath:'',backendEndPoint:origin,confirmEndPoint:origin,sdkUrl:origin,logEndpoint:origin+'/logs',sentryDSN:'',sentryScriptUrl:undefined,enableLogging:false,loggingLevel:'SILENT',maxLogsPushedPerEventName:0,sdkVersionValue:'v2',isIntegrationEnv:false,isSandboxEnv:true,isProductionEnv:false,isLocal:true};
-  await new Promise((resolve,reject)=>{const compiler=webpack({mode:'development',context:repo,devtool:false,entry:path.join(__dirname,'customer-review-browser.js'),output:{path:output,filename:'fixture.js'},module:{rules:[{test:/\.css$/i,type:'asset/source'}]},resolve:{alias:{'/package.json':path.join(repo,'package.json')}},plugins:[new webpack.DefinePlugin(Object.fromEntries(Object.entries(values).map(([k,v])=>[k,v===undefined?'undefined':JSON.stringify(v)])))]});compiler.run((error,stats)=>compiler.close(()=>error||stats.hasErrors()?reject(error||Error(stats.toString({all:false,errors:true}))):resolve()));});
+  const values={repoName:'fixture',repoVersion:'fixture',publicPath:'',backendEndPoint:origin,confirmEndPoint:origin,sdkUrl:origin,logEndpoint:origin+'/logs',sentryDSN:'',sentryScriptUrl:undefined,enableLogging:false,loggingLevel:'SILENT',maxLogsPushedPerEventName:0,sdkApiVersion:'v2',isIntegrationEnv:false,isSandboxEnv:true,isProductionEnv:false,isLocal:true};
+  await new Promise((resolve,reject)=>{const compiler=webpack({mode:'development',context:repo,devtool:false,entry:path.join(__dirname,'customer-review-browser.js'),output:{path:output,filename:'fixture.js'},module:{rules:[{test:/\.css$/i,type:'asset/source'}]},resolve:{alias:{'/package.json':path.join(repo,'package.json')}},plugins:[new webpack.DefinePlugin({__SDK_CONFIG__:JSON.stringify(values)})]});compiler.run((error,stats)=>compiler.close(()=>error||stats.hasErrors()?reject(error||Error(stats.toString({all:false,errors:true}))):resolve()));});
   browser=await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined});
   const page=await browser.newPage();const requests=[],errors=[];
   const dateTimeSession=await page.context().newCDPSession(page);await dateTimeSession.send('Emulation.setTimezoneOverride',{timezoneId:'Africa/Freetown'});

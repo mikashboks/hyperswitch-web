@@ -1,14 +1,16 @@
-open RecoilAtoms
+open JotaiAtoms
 open Utils
 
 @react.component
 let make = () => {
-  let {iframeId} = Recoil.useRecoilValueFromAtom(keys)
-  let loggerState = Recoil.useRecoilValueFromAtom(loggerAtom)
-  let {themeObj} = Recoil.useRecoilValueFromAtom(configAtom)
-  let isManualRetryEnabled = Recoil.useRecoilValueFromAtom(isManualRetryEnabled)
-  let areRequiredFieldsValid = Recoil.useRecoilValueFromAtom(areRequiredFieldsValid)
-  let areRequiredFieldsEmpty = Recoil.useRecoilValueFromAtom(areRequiredFieldsEmpty)
+  let {iframeId, sdkAuthorization} = Jotai.useAtomValue(keys)
+  let loggerState = Jotai.useAtomValue(loggerAtom)
+  let {themeObj} = Jotai.useAtomValue(configAtom)
+  let {layout} = Jotai.useAtomValue(optionAtom)
+  let layoutClass = CardUtils.getLayoutClass(layout)
+  let isManualRetryEnabled = Jotai.useAtomValue(isManualRetryEnabled)
+  let areRequiredFieldsValid = Jotai.useAtomValue(areRequiredFieldsValid)
+  let areRequiredFieldsEmpty = Jotai.useAtomValue(areRequiredFieldsEmpty)
   let intent = PaymentHelpers.usePaymentIntent(Some(loggerState), BankTransfer)
 
   let (requiredFieldsBody, setRequiredFieldsBody) = React.useState(_ => Dict.make())
@@ -41,15 +43,26 @@ let make = () => {
         postFailedSubmitResponse(~errortype="validation_error", ~message="Please enter all fields")
       }
     }
-  }, (areRequiredFieldsValid, areRequiredFieldsEmpty, isManualRetryEnabled, requiredFieldsBody))
-  useSubmitPaymentData(submitCallback)
+  }, (
+    areRequiredFieldsValid,
+    areRequiredFieldsEmpty,
+    isManualRetryEnabled,
+    requiredFieldsBody,
+    sdkAuthorization,
+  ))
+  PaymentMessageHooks.useSubmitPaymentData(submitCallback)
+
+  let paymentMethodType = "sepa_bank_transfer"
+  let paymentMethod = "bank_transfer"
 
   <div className="flex flex-col animate-slowShow" style={gridGap: themeObj.spacingTab}>
-    <DynamicFields
-      paymentMethod="bank_transfer" paymentMethodType="sepa_bank_transfer" setRequiredFieldsBody
-    />
-    <Surcharge paymentMethod="bank_transfer" paymentMethodType="sepa" />
+    <RenderIf condition={layoutClass.\"type" === Accordion}>
+      <Space height="0" />
+    </RenderIf>
+    <DynamicFields paymentMethod paymentMethodType setRequiredFieldsBody />
+    <Surcharge paymentMethod paymentMethodType />
     <InfoElement />
+    <Terms paymentMethodType paymentMethod />
   </div>
 }
 

@@ -2,26 +2,26 @@ import * as React from 'react';
 import {createRoot} from 'react-dom/client';
 import * as PaymentHelpers from '../src/Utilities/PaymentHelpers.bs.js';
 import * as CustomerReview from '../src/Utilities/CustomerReview.bs.js';
-import * as LoaderController from '../src/LoaderController.bs.js';
+import * as Utils from '../src/Utilities/Utils.bs.js';
 import * as Hyper from '../src/hyper-loader/Hyper.bs.js';
 import * as Status from '../src/Components/CustomerReviewStatus.bs.js';
 import * as Payment from '../src/Payment.bs.js';
 import * as LoggerUtils from '../src/Utilities/LoggerUtils.bs.js';
-import {RecoilRoot,useRecoilState,useSetRecoilState} from 'recoil';
-import * as Atoms from '../src/Utilities/RecoilAtoms.bs.js';
+import {Provider,createStore,useAtom,useSetAtom} from 'jotai';
+import * as Atoms from '../src/Utilities/JotaiAtoms.bs.js';
 import * as CommonHooks from '../src/Hooks/CommonHooks.bs.js';
 
 const context={backendUrl:location.origin,publishableKey:'pk_snd_fixture',profileId:'profile_a',tenantId:'',paymentId:'pay_a',clientSecret:'cs_fixture',customPodUri:''};
 function SubmitProbe(){
   const submit=PaymentHelpers.usePaymentIntent(undefined,'Card');
-  const setConfig=useSetRecoilState(Atoms.configAtom);
-  const [views,setViews]=useRecoilState(Atoms.customerReview);
-  const key=CustomerReview.key(context.backendUrl,context.publishableKey,context.tenantId,'',context.paymentId,context.profileId);
+  const setConfig=useSetAtom(Atoms.configAtom);
+  const [views,setViews]=useAtom(Atoms.customerReview);
+  const key=CustomerReview.scope(context);
   React.useEffect(()=>{
     window.staleSubmit=submit;
     window.setCustomerLocale=locale=>setConfig(previous=>({...previous,localeString:{...previous.localeString,locale}}));
-    window.pinScopedProcessing=()=>setViews(previous=>CustomerReview.remember(previous,{scopeKey:key,paymentId:'pay_a',profileId:'profile_a',status:'processing',checkedAt:new Date().toISOString()}));
-    window.pinScopedReview=()=>setViews(previous=>CustomerReview.remember(previous,{scopeKey:key,paymentId:'pay_a',profileId:'profile_a',status:'review',checkedAt:'2026-11-18T00:00:00Z',review:{state:'under_review',message:'fixture',asOf:'2026-11-18T00:00:00Z'}}));
+    window.pinScopedProcessing=()=>setViews(previous=>({...previous,[key]:{context,snapshot:{scopeKey:key,paymentId:'pay_a',profileId:'profile_a',status:'processing',checkedAt:new Date().toISOString()}}}));
+    window.pinScopedReview=()=>setViews(previous=>({...previous,[key]:{context,snapshot:{scopeKey:key,paymentId:'pay_a',profileId:'profile_a',status:'review',checkedAt:'2026-11-18T00:00:00Z',review:{state:'under_review',message:'fixture',asOf:'2026-11-18T00:00:00Z'}}}}));
   },[]);
   React.useEffect(()=>{window.probeRendered=!!CustomerReview.lookup(views,key);});
   return null;
@@ -41,8 +41,8 @@ function Fixture() {
         async()=>new Response(JSON.stringify({error:{type:'original_error',message:'Original presentation'}}),{status}),
         `${location.origin}/v2/payments/${paymentId}/confirm-intent`,[], '{}',
         {return_url:location.origin+'/return',publishableKey:context.publishableKey},context.clientSecret,
-        undefined,false,'Card','fixture','POST',()=>{},'',false,0,false,undefined,'payment',
-        {shouldUseTopRedirection:false,shouldUseTopRedirectionForIframe:false},
+        undefined,false,'Card','fixture','POST',()=>{},'',false,0,undefined,false,'payment',
+        {shouldUseTopRedirection:false,shouldRemoveBeforeUnloadEvents:false},undefined,undefined,false,location.origin,
         withContext?{...context,tenantId}:undefined,value=>setSnapshot(value));
       setError(result?.error?.message || '');
       return result;
@@ -59,5 +59,7 @@ function Fixture() {
 window.customerReview=CustomerReview;
 window.fixtureContext=context;
 window.makeHyper=Hyper.make;
-window.acceptsCustomerBindingMessage=LoaderController.acceptsCustomerBindingMessage;
-createRoot(document.getElementById('app')).render(React.createElement(RecoilRoot,{initializeState:({set})=>set(Atoms.keys,{...CommonHooks.defaultkeys,...context,customerBackendUrl:context.backendUrl})},React.createElement(SubmitProbe),React.createElement(PaymentMountProbe),React.createElement(Fixture)));
+window.acceptsCustomerBindingMessage=event=>Utils.isParentMessage(location.origin,{...event,origin:location.origin});
+const store=createStore();
+store.set(Atoms.keys,{...CommonHooks.defaultkeys,...context,customerBackendUrl:context.backendUrl,parentURL:location.origin});
+createRoot(document.getElementById('app')).render(React.createElement(Provider,{store},React.createElement(SubmitProbe),React.createElement(PaymentMountProbe),React.createElement(Fixture)));

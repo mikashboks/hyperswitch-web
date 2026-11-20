@@ -1,6 +1,21 @@
+type cvcIconStyle = Default | Hidden
+type cardBrandIconStyle = Standard | Hidden | Animated | HideGeneric
 type showTerms = Auto | Always | Never
+type paymentMethodsArrangementForTabs = Default | Grid
 type showType = Auto | Never
+type redirectionInfo = ShowRedirectionInfo | HideRedirectionInfo
 type layout = Accordion | Tabs
+type groupingBehavior = {
+  displayInSeparateScreen: bool,
+  groupByPaymentMethods: bool,
+}
+type savedMethodCustomization = {
+  groupingBehavior: groupingBehavior,
+  maxItems: int,
+  hideCardExpiry: bool,
+  defaultCollapsed: bool,
+  hiddenPaymentMethods: array<string>,
+}
 open Utils
 open ErrorUtils
 
@@ -67,18 +82,21 @@ type samsungPayStyleType = Buy
 type paypalStyleType = Paypal | Checkout | Buynow | Pay | Installment
 type applePayStyleType =
   | Default
+  | Plain
   | Buy
   | Donate
+  | SetUp
+  | Book
   | Checkout
   | Subscribe
-  | Reload
-  | Addmoney
-  | Topup
-  | Rent
+  | AddMoney
+  | Contribute
   | Order
+  | Reload
+  | Rent
   | Support
   | Tip
-  | Contribute
+  | TopUp
 type styleType =
   | ApplePay(applePayStyleType)
   | GooglePay(googlePayStyleType)
@@ -92,11 +110,49 @@ type style = {
   height: (heightType, heightType, heightType, heightType, heightType),
   buttonRadius: int,
 }
+
+type googlePayButtonColor = GPayDefault | GPayBlack | GPayWhite
+type googlePayButtonBorderType = GPayDefaultBorder | GPayNoBorder
+type paypalColor = PaypalGold | PaypalBlue | PaypalSilver | PaypalBlack | PaypalWhite
+type paypalShape = PaypalRect | PaypalPill | PaypalSharp
+type applePayButtonStyle = ApplePayBlack | ApplePayWhite | ApplePayWhiteOutline
+
+type googlePayWalletConfig = {
+  display: showType,
+  buttonColor: googlePayButtonColor,
+  buttonType: option<googlePayStyleType>,
+  height: option<int>,
+  buttonRadius: option<int>,
+  buttonBorderType: googlePayButtonBorderType,
+}
+
+type paypalWalletConfig = {
+  display: showType,
+  color: option<paypalColor>,
+  label: option<paypalStyleType>,
+  height: option<int>,
+  shape: paypalShape,
+  borderRadius: option<int>,
+}
+
+type applePayWalletConfig = {
+  display: showType,
+  buttonStyle: option<applePayButtonStyle>,
+  buttonType: applePayStyleType,
+  height: option<int>,
+  buttonRadius: option<int>,
+}
+
+type googlePayWalletField =
+  GooglePayConfigString(showType) | GooglePayConfigObj(googlePayWalletConfig)
+type paypalWalletField = PaypalConfigString(showType) | PaypalConfigObj(paypalWalletConfig)
+type applePayWalletField = ApplePayConfigString(showType) | ApplePayConfigObj(applePayWalletConfig)
+
 type wallets = {
   walletReturnUrl: string,
-  applePay: showType,
-  googlePay: showType,
-  payPal: showType,
+  applePay: applePayWalletField,
+  googlePay: googlePayWalletField,
+  payPal: paypalWalletField,
   klarna: showType,
   paze: showType,
   samsungPay: showType,
@@ -109,6 +165,13 @@ type layoutConfig = {
   spacedAccordionItems: bool,
   maxAccordionItems: int,
   \"type": layout,
+  savedMethodCustomization: savedMethodCustomization,
+  paymentMethodsArrangementForTabs: paymentMethodsArrangementForTabs,
+  displayOneClickPaymentMethodsOnTop: bool,
+  showCheckedIconForSelection: bool,
+  separatorText: option<string>,
+  cvcIcon: cvcIconStyle,
+  cardBrandIcon: cardBrandIconStyle,
 }
 
 type layoutType =
@@ -124,8 +187,15 @@ type customerCard = {
   cardHolderName: option<string>,
   nickname: string,
   isClickToPayCard: bool,
+  cardBin: string,
 }
 type bank = {mask: string}
+
+type bankRedirect = {
+  bankName: string,
+  accountHolderName: string,
+  mask: string,
+}
 
 type addressDetails = {
   line1: option<string>,
@@ -143,14 +213,13 @@ type customerMethods = {
   paymentToken: string,
   customerId: string,
   paymentMethod: string,
-  paymentMethodId: string,
-  paymentMethodIssuer: option<string>,
   card: customerCard,
   paymentMethodType: option<string>,
   defaultPaymentMethodSet: bool,
   requiresCvv: bool,
   lastUsedAt: string,
   bank: bank,
+  bankRedirect: bankRedirect,
   recurringEnabled: bool,
   billing: billingAddressPaymentMethod,
 }
@@ -175,15 +244,40 @@ type sdkHandleSavePayment = {
   confirmParams: ConfirmType.confirmParams,
 }
 
+type messageDisplayMode = DefaultSdkMessage | CustomMessage | Hidden
+
+type paymentMethodMessage = {
+  value: option<string>,
+  displayMode: messageDisplayMode,
+}
+
+type paymentMethodTypeConfig = {
+  paymentMethodType: string,
+  message: paymentMethodMessage,
+  displaySavedPaymentMethodsCheckbox: option<bool>,
+  savedPaymentMethodsCheckboxCheckedByDefault: option<bool>,
+}
+
+type paymentMethodConfig = {
+  paymentMethod: string,
+  message: paymentMethodMessage,
+  displaySavedPaymentMethodsCheckbox: option<bool>,
+  savedPaymentMethodsCheckboxCheckedByDefault: option<bool>,
+  paymentMethodTypes: array<paymentMethodTypeConfig>,
+}
+
+type paymentMethodsConfig = array<paymentMethodConfig>
+
 type options = {
   defaultValues: defaultValues,
   layout: layoutType,
   business: business,
   customerPaymentMethods: savedCardsLoadState,
-  savedPaymentMethods: savedCardsLoadState,
   paymentMethodOrder: option<array<string>>,
+  subscriptionEvents: option<array<PaymentEventTypes.events>>,
   displaySavedPaymentMethodsCheckbox: bool,
   displaySavedPaymentMethods: bool,
+  savedPaymentMethodsCheckboxCheckedByDefault: bool,
   fields: fields,
   readOnly: bool,
   terms: terms,
@@ -191,7 +285,6 @@ type options = {
   customMethodNames: customMethodNames,
   branding: showType,
   payButtonStyle: style,
-  showCardFormByDefault: bool,
   billingAddress: billingAddress,
   sdkHandleConfirmPayment: sdkHandleConfirmPayment,
   sdkHandleSavePayment: sdkHandleSavePayment,
@@ -203,6 +296,10 @@ type options = {
   displayBillingDetails: bool,
   customMessageForCardTerms: string,
   showShortSurchargeMessage: bool,
+  paymentMethodsConfig: paymentMethodsConfig,
+  alwaysSendCustomerAcceptance: bool,
+  redirectionInfo: redirectionInfo,
+  appearance: JSON.t,
 }
 
 type payerDetails = {
@@ -219,6 +316,7 @@ let defaultCardDetails = {
   cardHolderName: None,
   nickname: "",
   isClickToPayCard: false,
+  cardBin: "",
 }
 
 let defaultAddressDetails = {
@@ -239,24 +337,43 @@ let defaultCustomerMethods = {
   paymentToken: "",
   customerId: "",
   paymentMethod: "",
-  paymentMethodId: "",
-  paymentMethodIssuer: None,
   card: defaultCardDetails,
   paymentMethodType: None,
   defaultPaymentMethodSet: false,
   requiresCvv: true,
   lastUsedAt: "",
   bank: {mask: ""},
+  bankRedirect: {bankName: "", accountHolderName: "", mask: ""},
   recurringEnabled: false,
   billing: defaultDisplayBillingDetails,
 }
+let defaultGroupingBehavior = {
+  displayInSeparateScreen: true,
+  groupByPaymentMethods: false,
+}
+let defaultSavedMethodCustomization = {
+  groupingBehavior: defaultGroupingBehavior,
+  maxItems: 4,
+  hideCardExpiry: false,
+  defaultCollapsed: true,
+  hiddenPaymentMethods: [],
+}
+
 let defaultLayout = {
   defaultCollapsed: false,
   radios: false,
   spacedAccordionItems: false,
   maxAccordionItems: 4,
   \"type": Tabs,
+  savedMethodCustomization: defaultSavedMethodCustomization,
+  paymentMethodsArrangementForTabs: Default,
+  displayOneClickPaymentMethodsOnTop: true,
+  showCheckedIconForSelection: false,
+  separatorText: None,
+  cvcIcon: Default,
+  cardBrandIcon: Standard,
 }
+
 let defaultAddress: address = {
   line1: "",
   line2: "",
@@ -326,9 +443,9 @@ let defaultStyle = {
 }
 let defaultWallets = {
   walletReturnUrl: "",
-  applePay: Auto,
-  googlePay: Auto,
-  payPal: Auto,
+  applePay: ApplePayConfigString(Auto),
+  googlePay: GooglePayConfigString(Auto),
+  payPal: PaypalConfigString(Auto),
   klarna: Auto,
   paze: Auto,
   samsungPay: Auto,
@@ -349,23 +466,25 @@ let defaultSdkHandleSavePayment = {
   confirmParams: ConfirmType.defaultConfirm,
 }
 
+let defaultRedirectionInfo = ShowRedirectionInfo
+
 let defaultOptions = {
   defaultValues: defaultDefaultValues,
   business: defaultBusiness,
   customerPaymentMethods: LoadingSavedCards,
-  savedPaymentMethods: LoadingSavedCards,
   layout: ObjectLayout(defaultLayout),
   paymentMethodOrder: None,
+  subscriptionEvents: None,
   fields: defaultFields,
   displaySavedPaymentMethodsCheckbox: true,
   displaySavedPaymentMethods: true,
+  savedPaymentMethodsCheckboxCheckedByDefault: false,
   readOnly: false,
   terms: defaultTerms,
   branding: Auto,
   wallets: defaultWallets,
   payButtonStyle: defaultStyle,
   customMethodNames: [],
-  showCardFormByDefault: true,
   billingAddress: defaultBillingAddress,
   sdkHandleConfirmPayment: defaultSdkHandleConfirmPayment,
   sdkHandleSavePayment: defaultSdkHandleSavePayment,
@@ -375,6 +494,111 @@ let defaultOptions = {
   displayBillingDetails: false,
   customMessageForCardTerms: "",
   showShortSurchargeMessage: false,
+  paymentMethodsConfig: [],
+  alwaysSendCustomerAcceptance: false,
+  redirectionInfo: defaultRedirectionInfo,
+  appearance: Dict.make()->JSON.Encode.object,
+}
+
+let getMessageDisplayMode = (str, key) => {
+  switch str {
+  | "default_sdk_message" => DefaultSdkMessage
+  | "custom_message" => CustomMessage
+  | "hidden" => Hidden
+  | str => {
+      str->unknownPropValueWarning(["default_sdk_message", "custom_message", "hidden"], key)
+      DefaultSdkMessage
+    }
+  }
+}
+
+let defaultPaymentMethodMessage = {
+  value: None,
+  displayMode: DefaultSdkMessage,
+}
+
+let getPaymentMethodMessage = (dict, logger, context) => {
+  let messageDict = dict->getDictFromDict("message")
+  if messageDict->Dict.toArray->Array.length > 0 {
+    unknownKeysWarning(["value", "displayMode"], messageDict, context ++ ".message")
+    let value = messageDict->getOptionString("value")
+    let displayMode = if messageDict->Dict.get("displayMode")->Option.isSome {
+      messageDict
+      ->getWarningString("displayMode", "default_sdk_message", ~logger)
+      ->getMessageDisplayMode(context ++ ".message.displayMode")
+    } else {
+      switch value {
+      | Some(_) => CustomMessage
+      | None => DefaultSdkMessage
+      }
+    }
+    {
+      value,
+      displayMode,
+    }
+  } else {
+    defaultPaymentMethodMessage
+  }
+}
+
+let getPaymentMethodTypeConfig = (json, logger, paymentMethod) => {
+  let context = "options.paymentMethodsConfig." ++ paymentMethod
+  unknownKeysWarning(
+    [
+      "paymentMethodType",
+      "message",
+      "displaySavedPaymentMethodsCheckbox",
+      "savedPaymentMethodsCheckboxCheckedByDefault",
+    ],
+    json,
+    context,
+  )
+  {
+    paymentMethodType: json->getWarningString("paymentMethodType", "", ~logger),
+    message: getPaymentMethodMessage(json, logger, context),
+    displaySavedPaymentMethodsCheckbox: getOptionBool(json, "displaySavedPaymentMethodsCheckbox"),
+    savedPaymentMethodsCheckboxCheckedByDefault: getOptionBool(
+      json,
+      "savedPaymentMethodsCheckboxCheckedByDefault",
+    ),
+  }
+}
+
+let getPaymentMethodConfig = (json, logger) => {
+  unknownKeysWarning(
+    [
+      "paymentMethod",
+      "message",
+      "displaySavedPaymentMethodsCheckbox",
+      "savedPaymentMethodsCheckboxCheckedByDefault",
+      "paymentMethodTypes",
+    ],
+    json,
+    "options.paymentMethodsConfig",
+  )
+  let paymentMethod = json->getWarningString("paymentMethod", "", ~logger)
+  {
+    paymentMethod,
+    message: getPaymentMethodMessage(
+      json,
+      logger,
+      "options.paymentMethodsConfig." ++ paymentMethod,
+    ),
+    displaySavedPaymentMethodsCheckbox: getOptionBool(json, "displaySavedPaymentMethodsCheckbox"),
+    savedPaymentMethodsCheckboxCheckedByDefault: getOptionBool(
+      json,
+      "savedPaymentMethodsCheckboxCheckedByDefault",
+    ),
+    paymentMethodTypes: json
+    ->getArrayOfObjectsFromDict("paymentMethodTypes")
+    ->Array.map(pmTypeJson => getPaymentMethodTypeConfig(pmTypeJson, logger, paymentMethod)),
+  }
+}
+
+let getPaymentMethodsConfig = (dict, str, logger) => {
+  dict
+  ->getArrayOfObjectsFromDict(str)
+  ->Array.map(json => getPaymentMethodConfig(json, logger))
 }
 
 let getLayout = str => {
@@ -387,6 +611,45 @@ let getLayout = str => {
     }
   }
 }
+
+let getPaymentMethodsArrangementForTabs = str => {
+  switch str {
+  | "grid" => Grid
+  | "default" => Default
+  | str => {
+      str->unknownPropValueWarning(["grid", "default"], "options.paymentMethodsArrangementForTabs")
+      Default
+    }
+  }
+}
+
+let getCvcIconStyle = (str): cvcIconStyle => {
+  switch str {
+  | "hidden" => Hidden
+  | "" | "default" => Default
+  | str => {
+      str->unknownPropValueWarning(["hidden", "default"], "options.layout.cvcIcon")
+      Default
+    }
+  }
+}
+
+let getCardBrandIconStyle = (str): cardBrandIconStyle => {
+  switch str {
+  | "hidden" => Hidden
+  | "animated" => Animated
+  | "hideGeneric" => HideGeneric
+  | "" | "standard" => Standard
+  | str => {
+      str->unknownPropValueWarning(
+        ["standard", "hidden", "animated", "hideGeneric"],
+        "options.layout.cardBrandIcon",
+      )
+      Standard
+    }
+  }
+}
+
 let getAddress = (dict, str, logger) => {
   dict
   ->Dict.get(str)
@@ -475,29 +738,23 @@ let getShowType = (str, key) => {
 }
 let getApplePayType = str => {
   switch str {
-  | "buy"
-  | "buynow" =>
-    ApplePay(Buy)
+  | "default" => ApplePay(Default)
+  | "plain" => ApplePay(Plain)
+  | "buy" => ApplePay(Buy)
   | "donate" => ApplePay(Donate)
-  | "check-out"
-  | "checkout" =>
-    ApplePay(Checkout)
+  | "set-up" | "setup" => ApplePay(SetUp)
+  | "book" => ApplePay(Book)
+  | "check-out" | "checkout" => ApplePay(Checkout)
   | "subscribe" => ApplePay(Subscribe)
-  | "reload" => ApplePay(Reload)
-  | "add-money"
-  | "addmoney" =>
-    ApplePay(Addmoney)
-  | "top-up"
-  | "topup" =>
-    ApplePay(Topup)
-  | "rent" => ApplePay(Rent)
+  | "add-money" | "addmoney" => ApplePay(AddMoney)
+  | "contribute" => ApplePay(Contribute)
   | "order" => ApplePay(Order)
+  | "reload" => ApplePay(Reload)
+  | "rent" => ApplePay(Rent)
   | "support" => ApplePay(Support)
   | "tip" => ApplePay(Tip)
-  | "contribute" => ApplePay(Contribute)
-  | "default"
-  | _ =>
-    ApplePay(Default)
+  | "top-up" | "topup" => ApplePay(TopUp)
+  | _ => ApplePay(Plain)
   }
 }
 let getGooglePayType = str => {
@@ -661,14 +918,115 @@ let getFields: (Dict.t<JSON.t>, string, 'a) => fields = (dict, str, logger) => {
   })
   ->Option.getOr(defaultFields)
 }
+
+let getGroupingBehaviorFromString = str => {
+  switch str {
+  | "groupByPaymentMethods" => {displayInSeparateScreen: false, groupByPaymentMethods: true}
+  | "default" => defaultGroupingBehavior
+  | str => {
+      str->unknownPropValueWarning(
+        ["groupByPaymentMethods", "default"],
+        "options.layout.savedMethodCustomization.groupingBehavior",
+      )
+      defaultGroupingBehavior
+    }
+  }
+}
+
+let getGroupingBehaviorFromObject = (json, ~logger) => {
+  unknownKeysWarning(
+    ["displayInSeparateScreen", "groupByPaymentMethods"],
+    json,
+    "options.layout.savedMethodCustomization.groupingBehavior",
+  )
+  {
+    displayInSeparateScreen: getBoolWithWarning(json, "displayInSeparateScreen", true, ~logger),
+    groupByPaymentMethods: getBoolWithWarning(json, "groupByPaymentMethods", false, ~logger),
+  }
+}
+
+let getGroupingBehavior = (dict, ~logger) => {
+  dict
+  ->Dict.get("groupingBehavior")
+  ->Option.map(val => {
+    switch val->JSON.Classify.classify {
+    | String(str) => str->getGroupingBehaviorFromString
+    | Object(json) => json->getGroupingBehaviorFromObject(~logger)
+    | _ => defaultGroupingBehavior
+    }
+  })
+  ->Option.getOr(defaultGroupingBehavior)
+}
+
+let getMaxItems = (dict, key, default, ~logger) => {
+  let parsedMaxItems = getNumberWithWarning(dict, key, default, ~logger)
+  if parsedMaxItems > 0 {
+    parsedMaxItems
+  } else {
+    valueOutRangeWarning(
+      parsedMaxItems,
+      "options.layout.savedMethodCustomization.maxItems",
+      "[>0] - maxItems must be a positive number. Value set to default (4)",
+      ~logger,
+    )
+    default
+  }
+}
+
+let getSavedMethodCustomization = (dict, str, logger) => {
+  dict
+  ->Dict.get(str)
+  ->Option.flatMap(JSON.Decode.object)
+  ->Option.map(json => {
+    unknownKeysWarning(
+      [
+        "groupingBehavior",
+        "maxItems",
+        "hideCardExpiry",
+        "defaultCollapsed",
+        "hiddenPaymentMethods",
+      ],
+      json,
+      "options.layout.savedMethodCustomization",
+    )
+    {
+      groupingBehavior: json->getGroupingBehavior(~logger),
+      maxItems: getMaxItems(json, "maxItems", 4, ~logger),
+      hideCardExpiry: getBool(json, "hideCardExpiry", false),
+      defaultCollapsed: getBoolWithWarning(json, "defaultCollapsed", true, ~logger),
+      hiddenPaymentMethods: json->getStrArray("hiddenPaymentMethods"),
+    }
+  })
+  ->Option.getOr(defaultSavedMethodCustomization)
+}
+
 let getLayoutValues = (val, logger) => {
   switch val->JSON.Classify.classify {
   | String(str) => StringLayout(str->getLayout)
   | Object(json) =>
     ObjectLayout({
       let layoutType = getWarningString(json, "type", "tabs", ~logger)
+      let paymentMethodsArrangementForTabsType = getWarningString(
+        json,
+        "paymentMethodsArrangementForTabs",
+        "default",
+        ~logger,
+      )
       unknownKeysWarning(
-        ["defaultCollapsed", "radios", "spacedAccordionItems", "type", "maxAccordionItems"],
+        [
+          "defaultCollapsed",
+          "radios",
+          "spacedAccordionItems",
+          "type",
+          "maxAccordionItems",
+          "savedMethodCustomization",
+          "paymentMethodsArrangementForTabs",
+          "displayOneClickPaymentMethodsOnTop",
+          "showCheckedIconForSelection",
+          "separatorText",
+          "cvcIcon",
+          "cardBrandIcon",
+        ],
         json,
         "options.layout",
       )
@@ -678,6 +1036,32 @@ let getLayoutValues = (val, logger) => {
         spacedAccordionItems: getBoolWithWarning(json, "spacedAccordionItems", false, ~logger),
         maxAccordionItems: getNumberWithWarning(json, "maxAccordionItems", 4, ~logger),
         \"type": layoutType->getLayout,
+        savedMethodCustomization: getSavedMethodCustomization(
+          json,
+          "savedMethodCustomization",
+          logger,
+        ),
+        paymentMethodsArrangementForTabs: paymentMethodsArrangementForTabsType->getPaymentMethodsArrangementForTabs,
+        displayOneClickPaymentMethodsOnTop: getBoolWithWarning(
+          json,
+          "displayOneClickPaymentMethodsOnTop",
+          true,
+          ~logger,
+        ),
+        showCheckedIconForSelection: getBoolWithWarning(
+          json,
+          "showCheckedIconForSelection",
+          false,
+          ~logger,
+        ),
+        separatorText: getOptionString(json, "separatorText"),
+        cvcIcon: getWarningString(json, "cvcIcon", "", ~logger)->getCvcIconStyle,
+        cardBrandIcon: getWarningString(
+          json,
+          "cardBrandIcon",
+          "standard",
+          ~logger,
+        )->getCardBrandIconStyle,
       }
     })
   | _ => StringLayout(Tabs)
@@ -816,28 +1200,220 @@ let getStyle = (dict, str, logger) => {
   })
   ->Option.getOr(defaultStyle)
 }
+
+let getGooglePayWalletConfig = (json, logger) => {
+  unknownKeysWarning(
+    ["display", "buttonColor", "buttonType", "height", "buttonRadius", "buttonBorderType"],
+    json,
+    "options.wallets.googlePay",
+  )
+  {
+    display: getWarningString(json, "display", "auto", ~logger)->getShowType(
+      "options.wallets.googlePay.display",
+    ),
+    buttonColor: switch json->Dict.get("buttonColor")->Option.flatMap(JSON.Decode.string) {
+    | Some("black") => GPayBlack
+    | Some("white") => GPayWhite
+    | Some("default") | None => GPayDefault
+    | Some(v) =>
+      v->unknownPropValueWarning(
+        ["black", "white", "default"],
+        "options.wallets.googlePay.buttonColor",
+      )
+      GPayDefault
+    },
+    buttonType: json
+    ->Dict.get("buttonType")
+    ->Option.flatMap(JSON.Decode.string)
+    ->Option.map(getGooglePayType)
+    ->Option.map(t =>
+      switch t {
+      | GooglePay(v) => v
+      | _ => Default
+      }
+    ),
+    height: json->Dict.get("height")->Option.flatMap(JSON.Decode.float)->Option.map(Int.fromFloat),
+    buttonRadius: json
+    ->Dict.get("buttonRadius")
+    ->Option.flatMap(JSON.Decode.float)
+    ->Option.map(Int.fromFloat),
+    buttonBorderType: switch json
+    ->Dict.get("buttonBorderType")
+    ->Option.flatMap(JSON.Decode.string) {
+    | Some("no_border") => GPayNoBorder
+    | Some("default_border") | None => GPayDefaultBorder
+    | Some(v) =>
+      v->unknownPropValueWarning(
+        ["no_border", "default_border"],
+        "options.wallets.googlePay.buttonBorderType",
+      )
+      GPayDefaultBorder
+    },
+  }
+}
+
+let getPaypalWalletConfig = (json, logger) => {
+  unknownKeysWarning(
+    ["display", "color", "label", "height", "shape", "borderRadius"],
+    json,
+    "options.wallets.payPal",
+  )
+  {
+    display: getWarningString(json, "display", "auto", ~logger)->getShowType(
+      "options.wallets.payPal.display",
+    ),
+    color: switch json->Dict.get("color")->Option.flatMap(JSON.Decode.string) {
+    | Some("gold") => Some(PaypalGold)
+    | Some("blue") => Some(PaypalBlue)
+    | Some("silver") => Some(PaypalSilver)
+    | Some("black") => Some(PaypalBlack)
+    | Some("white") => Some(PaypalWhite)
+    | None => None
+    | Some(v) =>
+      v->unknownPropValueWarning(
+        ["gold", "blue", "silver", "black", "white"],
+        "options.wallets.payPal.color",
+      )
+      None
+    },
+    label: json
+    ->Dict.get("label")
+    ->Option.flatMap(JSON.Decode.string)
+    ->Option.map(getPayPalType)
+    ->Option.map(t =>
+      switch t {
+      | Paypal(v) => Some(v)
+      | _ => None
+      }
+    )
+    ->Option.getOr(None),
+    height: json->Dict.get("height")->Option.flatMap(JSON.Decode.float)->Option.map(Int.fromFloat),
+    shape: switch json->Dict.get("shape")->Option.flatMap(JSON.Decode.string) {
+    | Some("pill") => PaypalPill
+    | Some("sharp") => PaypalSharp
+    | Some("rect") | None => PaypalRect
+    | Some(v) =>
+      v->unknownPropValueWarning(["rect", "pill", "sharp"], "options.wallets.payPal.shape")
+      PaypalRect
+    },
+    borderRadius: json
+    ->Dict.get("borderRadius")
+    ->Option.flatMap(JSON.Decode.float)
+    ->Option.map(Int.fromFloat),
+  }
+}
+
+let getGooglePayWalletField = (dict, key, logger) => {
+  switch dict->Dict.get(key) {
+  | None => GooglePayConfigString(Auto)
+  | Some(json) =>
+    switch JSON.Decode.string(json) {
+    | Some(str) => GooglePayConfigString(str->getShowType(`options.wallets.${key}`))
+    | None =>
+      switch JSON.Decode.object(json) {
+      | Some(obj) => GooglePayConfigObj(getGooglePayWalletConfig(obj, logger))
+      | None => GooglePayConfigString(Auto)
+      }
+    }
+  }
+}
+
+let getPaypalWalletField = (dict, key, logger) => {
+  switch dict->Dict.get(key) {
+  | None => PaypalConfigString(Auto)
+  | Some(json) =>
+    switch JSON.Decode.string(json) {
+    | Some(str) => PaypalConfigString(str->getShowType(`options.wallets.${key}`))
+    | None =>
+      switch JSON.Decode.object(json) {
+      | Some(obj) => PaypalConfigObj(getPaypalWalletConfig(obj, logger))
+      | None => PaypalConfigString(Auto)
+      }
+    }
+  }
+}
+
+let getApplePayWalletConfig = (json, logger) => {
+  unknownKeysWarning(
+    ["display", "buttonStyle", "buttonType", "height", "buttonRadius"],
+    json,
+    "options.wallets.applePay",
+  )
+  {
+    display: getWarningString(json, "display", "auto", ~logger)->getShowType(
+      "options.wallets.applePay.display",
+    ),
+    buttonStyle: switch json->Dict.get("buttonStyle")->Option.flatMap(JSON.Decode.string) {
+    | Some("white") => Some(ApplePayWhite)
+    | Some("white-outline") => Some(ApplePayWhiteOutline)
+    | Some("black") => Some(ApplePayBlack)
+    | None => None
+    | Some(v) =>
+      v->unknownPropValueWarning(
+        ["black", "white", "white-outline"],
+        "options.wallets.applePay.buttonStyle",
+      )
+      None
+    },
+    buttonType: json
+    ->Dict.get("buttonType")
+    ->Option.flatMap(JSON.Decode.string)
+    ->Option.map(getApplePayType)
+    ->Option.map(t =>
+      switch t {
+      | ApplePay(v) => v
+      | _ => Plain
+      }
+    )
+    ->Option.getOr(Plain),
+    height: json->Dict.get("height")->Option.flatMap(JSON.Decode.float)->Option.map(Int.fromFloat),
+    buttonRadius: json
+    ->Dict.get("buttonRadius")
+    ->Option.flatMap(JSON.Decode.float)
+    ->Option.map(Int.fromFloat),
+  }
+}
+
+let getApplePayWalletField = (dict, key, logger) => {
+  switch dict->Dict.get(key) {
+  | None => ApplePayConfigString(Auto)
+  | Some(json) =>
+    switch JSON.Decode.string(json) {
+    | Some(str) => ApplePayConfigString(str->getShowType(`options.wallets.${key}`))
+    | None =>
+      switch JSON.Decode.object(json) {
+      | Some(obj) => ApplePayConfigObj(getApplePayWalletConfig(obj, logger))
+      | None => ApplePayConfigString(Auto)
+      }
+    }
+  }
+}
+
 let getWallets = (dict, str, logger) => {
   dict
   ->Dict.get(str)
   ->Option.flatMap(JSON.Decode.object)
   ->Option.map(json => {
     unknownKeysWarning(
-      ["applePay", "googlePay", "style", "walletReturnUrl", "payPal", "klarna", "samsungPay"],
+      [
+        "applePay",
+        "googlePay",
+        "style",
+        "walletReturnUrl",
+        "payPal",
+        "klarna",
+        "samsungPay",
+        "paze",
+      ],
       json,
       "options.wallets",
     )
 
     {
       walletReturnUrl: getRequiredString(json, "walletReturnUrl", "", ~logger),
-      applePay: getWarningString(json, "applePay", "auto", ~logger)->getShowType(
-        "options.wallets.applePay",
-      ),
-      googlePay: getWarningString(json, "googlePay", "auto", ~logger)->getShowType(
-        "options.wallets.googlePay",
-      ),
-      payPal: getWarningString(json, "payPal", "auto", ~logger)->getShowType(
-        "options.wallets.payPal",
-      ),
+      applePay: getApplePayWalletField(json, "applePay", logger),
+      googlePay: getGooglePayWalletField(json, "googlePay", logger),
+      payPal: getPaypalWalletField(json, "payPal", logger),
       klarna: getWarningString(json, "klarna", "auto", ~logger)->getShowType(
         "options.wallets.klarna",
       ),
@@ -851,6 +1427,18 @@ let getWallets = (dict, str, logger) => {
   ->Option.getOr(defaultWallets)
 }
 
+let getRedirectionInfo = (dict, str, logger) => {
+  let value = getWarningString(dict, str, "show", ~logger)
+  switch value {
+  | "hidden" => HideRedirectionInfo
+  | "show" => ShowRedirectionInfo
+  | str => {
+      str->unknownPropValueWarning(["show", "hidden"], "options.redirectionInfo")
+      ShowRedirectionInfo
+    }
+  }
+}
+
 let getLayout = (dict, str, logger) => {
   dict
   ->Dict.get(str)
@@ -860,22 +1448,29 @@ let getLayout = (dict, str, logger) => {
   ->Option.getOr(ObjectLayout(defaultLayout))
 }
 
+// Single shared mapper for the customerCard field shape, called both by the
+// old `getCardDetails` (unwrapping a sibling `card` key) and the new
+// clientList path (unwrapping `payment_method_data.card`) — so there is
+// exactly one place that knows the customerCard field mapping.
+let cardJsonToCustomerCard: Dict.t<JSON.t> => customerCard = json => {
+  {
+    scheme: Some(getString(json, "scheme", "")),
+    last4Digits: getString(json, "last4_digits", ""),
+    expiryMonth: getString(json, "expiry_month", ""),
+    expiryYear: getString(json, "expiry_year", ""),
+    cardToken: getString(json, "card_token", ""),
+    cardHolderName: getOptionString(json, "card_holder_name"),
+    nickname: getString(json, "nick_name", ""),
+    isClickToPayCard: false,
+    cardBin: getString(json, "card_isin", ""),
+  }
+}
+
 let getCardDetails = (dict, str) => {
   dict
   ->Dict.get(str)
   ->Option.flatMap(JSON.Decode.object)
-  ->Option.map(json => {
-    {
-      scheme: Some(getString(json, "scheme", "")),
-      last4Digits: getString(json, "last4_digits", ""),
-      expiryMonth: getString(json, "expiry_month", ""),
-      expiryYear: getString(json, "expiry_year", ""),
-      cardToken: getString(json, "card_token", ""),
-      cardHolderName: getOptionString(json, "card_holder_name"),
-      nickname: getString(json, "nick_name", ""),
-      isClickToPayCard: false,
-    }
-  })
+  ->Option.map(cardJsonToCustomerCard)
   ->Option.getOr(defaultCardDetails)
 }
 
@@ -906,6 +1501,9 @@ let getPaymentMethodType = dict => {
   dict->Dict.get("payment_method_type")->Option.flatMap(JSON.Decode.string)
 }
 
+let getBankRedirectDict = dict =>
+  dict->getDictFromDict("payment_method_data")->getDictFromDict("bank_redirect")
+
 let getBank = dict => {
   {
     mask: dict
@@ -914,10 +1512,35 @@ let getBank = dict => {
   }
 }
 
-let itemToCustomerObjMapper = customerDict => {
-  let customerArr = customerDict->getArray("customer_payment_methods")
+let getBankRedirect = dict => {
+  let bankRedirectDict = dict->getBankRedirectDict
+  {
+    bankName: bankRedirectDict->getString("bank_name", ""),
+    accountHolderName: bankRedirectDict->getString("account_holder_name", ""),
+    mask: bankRedirectDict->getString("mask", ""),
+  }
+}
 
-  let isGuestCustomer = customerDict->getBool("is_guest_customer", false)
+// --- clientList (`fetchClientList`) customer_payment_methods decoder ---
+//
+// clientList's customer_payment_methods entries nest card details under
+// `payment_method_data.card` (not a sibling `card` key), and lack
+// `payment_method_id`/`customer_id`/`payment_method_issuer`/`bank`/`billing`
+// entirely — known, accepted gaps (see migration plan), all defaulted the
+// same way the old decoder already defaults them when the key is absent.
+let getCustomerCardDetailsFromPaymentMethodData = dict => {
+  dict
+  ->getDictFromDict("payment_method_data")
+  ->getDictFromDict("card")
+  ->cardJsonToCustomerCard
+}
+
+let itemToCustomerObjMapperFromClientList = clientListDict => {
+  let customerArr = clientListDict->getArray("customer_payment_methods")
+  let intentDataDict = clientListDict->getDictFromDict("intent_data")
+
+  let isGuestCustomer = intentDataDict->getBool("is_guest_customer", false)
+  let customerId = intentDataDict->getString("customer_id", "")
 
   let customerPaymentMethods =
     customerArr
@@ -925,31 +1548,31 @@ let itemToCustomerObjMapper = customerDict => {
     ->Array.map(dict => {
       {
         paymentToken: getString(dict, "payment_token", ""),
-        customerId: getString(dict, "customer_id", ""),
+        customerId,
         paymentMethod: getString(dict, "payment_method", ""),
-        paymentMethodId: getString(dict, "payment_method_id", ""),
-        paymentMethodIssuer: getOptionString(dict, "payment_method_issuer"),
-        card: getCardDetails(dict, "card"),
+        card: getCustomerCardDetailsFromPaymentMethodData(dict),
         paymentMethodType: getPaymentMethodType(dict),
         defaultPaymentMethodSet: getBool(dict, "default_payment_method_set", false),
         requiresCvv: getBool(dict, "requires_cvv", true),
         lastUsedAt: getString(dict, "last_used_at", ""),
-        bank: dict->getBank,
+        bank: {mask: ""},
+        bankRedirect: dict->getBankRedirect,
         recurringEnabled: getBool(dict, "recurring_enabled", false),
-        billing: getBillingAddressPaymentMethod(dict, "billing"),
+        billing: defaultDisplayBillingDetails,
       }
     })
 
   (customerPaymentMethods, isGuestCustomer)
 }
 
-let createCustomerObjArr = (dict, key) => {
-  let customerDict =
+let createCustomerObjArrFromClientList = (dict, key) => {
+  let clientListDict =
     dict
     ->Dict.get(key)
     ->Option.flatMap(JSON.Decode.object)
     ->Option.getOr(Dict.make())
-  let (customerPaymentMethods, isGuestCustomer) = customerDict->itemToCustomerObjMapper
+  let (customerPaymentMethods, isGuestCustomer) =
+    clientListDict->itemToCustomerObjMapperFromClientList
   LoadedSavedCards(customerPaymentMethods, isGuestCustomer)
 }
 
@@ -965,14 +1588,13 @@ let getCustomerMethods = (dict, str) => {
           paymentToken: getString(json, "payment_token", ""),
           customerId: getString(json, "customer_id", ""),
           paymentMethod: getString(json, "payment_method", ""),
-          paymentMethodId: getString(json, "payment_method_id", ""),
-          paymentMethodIssuer: Some(getString(json, "payment_method_issuer", "")),
           card: getCardDetails(json, "card"),
           paymentMethodType: getPaymentMethodType(dict),
           defaultPaymentMethodSet: getBool(dict, "default_payment_method_set", false),
           requiresCvv: getBool(dict, "requires_cvv", true),
           lastUsedAt: getString(dict, "last_used_at", ""),
           bank: dict->getBank,
+          bankRedirect: json->getBankRedirect,
           recurringEnabled: getBool(dict, "recurring_enabled", false),
           billing: getBillingAddressPaymentMethod(json, "billing"),
         }
@@ -1030,55 +1652,99 @@ let getConfirmParams = dict => {
 
 let getSdkHandleConfirmPaymentProps = dict => {
   handleConfirm: dict->getBool("handleConfirm", false),
-  buttonText: ?dict->getOptionString("buttonText"),
+  buttonText: ?(dict->getOptionString("buttonText")),
   confirmParams: dict->getDictFromDict("confirmParams")->getConfirmParams,
 }
 
 let getSdkHandleSavePaymentProps = dict => {
   handleSave: dict->getBool("handleSave", false),
-  buttonText: ?dict->getOptionString("buttonText"),
+  buttonText: ?(dict->getOptionString("buttonText")),
   confirmParams: dict->getDictFromDict("confirmParams")->getConfirmParams,
 }
 
-let itemToObjMapper = (dict, logger) => {
-  unknownKeysWarning(
-    [
-      "defaultValues",
-      "business",
-      "layout",
-      "paymentMethodOrder",
-      "customerPaymentMethods",
-      "fields",
-      "readOnly",
-      "terms",
-      "wallets",
-      "showCardFormByDefault",
-      "displaySavedPaymentMethodsCheckbox",
-      "displaySavedPaymentMethods",
-      "sdkHandleOneClickConfirmPayment",
-      "showCardFormByDefault",
-      "sdkHandleConfirmPayment",
-      "sdkHandleSavePayment",
-      "paymentMethodsHeaderText",
-      "savedPaymentMethodsHeaderText",
-      "hideExpiredPaymentMethods",
-      "branding",
-      "displayDefaultSavedPaymentIcon",
-      "hideCardNicknameField",
-      "displayBillingDetails",
-      "customMessageForCardTerms",
-      "showShortSurchargeMessage",
-    ],
-    dict,
-    "options",
+let allowedPaymentElementOptions = [
+  "defaultValues",
+  "business",
+  "layout",
+  "paymentMethodOrder",
+  "customerPaymentMethods",
+  "fields",
+  "readOnly",
+  "terms",
+  "wallets",
+  "displaySavedPaymentMethodsCheckbox",
+  "displaySavedPaymentMethods",
+  "savedPaymentMethodsCheckboxCheckedByDefault",
+  "sdkHandleOneClickConfirmPayment",
+  "sdkHandleConfirmPayment",
+  "sdkHandleSavePayment",
+  "paymentMethodsHeaderText",
+  "savedPaymentMethodsHeaderText",
+  "hideExpiredPaymentMethods",
+  "branding",
+  "displayDefaultSavedPaymentIcon",
+  "hideCardNicknameField",
+  "displayBillingDetails",
+  "customMessageForCardTerms",
+  "showShortSurchargeMessage",
+  "paymentMethodsConfig",
+  "alwaysSendCustomerAcceptance",
+  "redirectionInfo",
+  "appearance",
+]
+
+let fieldsToExcludeFromMasking = ["layout", "wallets", "paymentMethodsConfig", "terms"]
+
+let overrideFieldsToExcludeFromMasking = [
+  "wallets.walletReturnUrl",
+  "paymentMethodsConfig.paymentMethodTypes.message.value",
+]
+
+let normalizePath = path => path->String.replaceRegExp(%re("/\[(\d+)\]/g"), "")
+
+let isPathStartsWithPattern = (normalizedPath, normalizedPattern) =>
+  normalizedPath == normalizedPattern || normalizedPath->String.startsWith(normalizedPattern ++ ".")
+
+let shouldMaskField = path => {
+  let normalizedPath = normalizePath(path)
+  let isOverridden = overrideFieldsToExcludeFromMasking->Array.includes(normalizedPath)
+  let isExcluded =
+    fieldsToExcludeFromMasking->Array.some(pattern =>
+      isPathStartsWithPattern(normalizedPath, normalizePath(pattern))
+    )
+  isOverridden || !isExcluded
+}
+
+let sanitizePaymentElementOptions = dict => {
+  dict
+  ->JSON.Encode.object
+  ->Utils.maskStringValuesInJson(~value=_, ~currentPath="", ~depth=0, ~shouldMaskField)
+  ->getDictFromJson
+}
+
+let sanitizePreloadSdkParms = dict => {
+  dict
+  ->JSON.Encode.object
+  ->Utils.maskStringValuesInJson(~value=_, ~currentPath="", ~depth=0, ~shouldMaskField=_ => true)
+  ->getDictFromJson
+}
+
+let itemToObjMapper = (dict, logger: HyperLoggerTypes.loggerMake) => {
+  unknownKeysWarning(allowedPaymentElementOptions, dict, "options")
+
+  logger.setLogInfo(
+    ~value=dict->sanitizePaymentElementOptions->JSON.Encode.object->JSON.stringify,
+    ~eventName=PAYMENT_ELEMENT_OPTIONS,
+    ~logType=INFO,
   )
+
   {
     defaultValues: getDefaultValues(dict, "defaultValues", logger),
     business: getBusiness(dict, "business", logger),
     layout: getLayout(dict, "layout", logger),
     customerPaymentMethods: getCustomerMethods(dict, "customerPaymentMethods"),
-    savedPaymentMethods: getCustomerMethods(dict, "customerPaymentMethods"),
     paymentMethodOrder: getOptionalStrArray(dict, "paymentMethodOrder"),
+    subscriptionEvents: SubscriptionEventTypes.getSubscriptionEvents(dict, "subscriptionEvents"),
     fields: getFields(dict, "fields", logger),
     branding: getWarningString(dict, "branding", "auto", ~logger)->getShowType("options.branding"),
     displaySavedPaymentMethodsCheckbox: getBoolWithWarning(
@@ -1093,12 +1759,17 @@ let itemToObjMapper = (dict, logger) => {
       true,
       ~logger,
     ),
+    savedPaymentMethodsCheckboxCheckedByDefault: getBoolWithWarning(
+      dict,
+      "savedPaymentMethodsCheckboxCheckedByDefault",
+      defaultOptions.savedPaymentMethodsCheckboxCheckedByDefault,
+      ~logger,
+    ),
     readOnly: getBoolWithWarning(dict, "readOnly", false, ~logger),
     terms: getTerms(dict, "terms", logger),
     wallets: getWallets(dict, "wallets", logger),
     customMethodNames: getCustomMethodNames(dict, "customMethodNames"),
     payButtonStyle: getStyle(dict, "payButtonStyle", logger),
-    showCardFormByDefault: getBool(dict, "showCardFormByDefault", true),
     billingAddress: getBillingAddress(dict, "billingAddress", logger),
     sdkHandleConfirmPayment: dict
     ->getDictFromDict("sdkHandleConfirmPayment")
@@ -1114,6 +1785,10 @@ let itemToObjMapper = (dict, logger) => {
     displayBillingDetails: getBool(dict, "displayBillingDetails", false),
     customMessageForCardTerms: getString(dict, "customMessageForCardTerms", ""),
     showShortSurchargeMessage: getBool(dict, "showShortSurchargeMessage", false),
+    paymentMethodsConfig: getPaymentMethodsConfig(dict, "paymentMethodsConfig", logger),
+    alwaysSendCustomerAcceptance: getBool(dict, "alwaysSendCustomerAcceptance", false),
+    redirectionInfo: getRedirectionInfo(dict, "redirectionInfo", logger),
+    appearance: getJsonObjectFromDict(dict, "appearance"),
   }
 }
 
@@ -1167,8 +1842,6 @@ let convertClickToPayCardToCustomerMethod = (
     paymentToken: clickToPayCard.srcDigitalCardId,
     customerId: "", // Empty as Click to Pay doesn't provide this
     paymentMethod: "card",
-    paymentMethodId: clickToPayCard.srcDigitalCardId,
-    paymentMethodIssuer: None,
     card: {
       scheme: cardScheme,
       last4Digits: clickToPayCard.panLastFour,
@@ -1178,6 +1851,7 @@ let convertClickToPayCardToCustomerMethod = (
       cardHolderName: None,
       nickname: Some(clickToPayCard.digitalCardData.descriptorName)->Option.getOr(""),
       isClickToPayCard: true,
+      cardBin: "",
     },
     paymentMethodType: Some("click_to_pay"),
     defaultPaymentMethodSet: false, // Default to false as Click to Pay doesn't provide this
@@ -1185,6 +1859,11 @@ let convertClickToPayCardToCustomerMethod = (
     lastUsedAt: Js.Date.make()->Js.Date.toISOString, // Current timestamp as Click to Pay doesn't provide this
     bank: {
       mask: "", // Just use the mask field that exists in the type
+    },
+    bankRedirect: {
+      bankName: "",
+      accountHolderName: "",
+      mask: "",
     },
     recurringEnabled: true, // Since Click to Pay cards can be used for recurring payments
     billing: defaultDisplayBillingDetails,

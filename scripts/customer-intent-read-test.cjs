@@ -53,9 +53,9 @@ async function main() {
   await test('unknown state stays server data and cannot trigger action',async()=>{const value={...response,customer_review:{state:'future_state'}};mock(value);assert.deepEqual(await retrieve(...base),{paymentIntent:value});assert.equal(calls.length,1);});
   await test('payment path encoded',async()=>{let args=[...base];args[4]='pay/a?x';mock({...response,id:args[4]});await retrieve(...args);assert.equal(calls[0].url,'https://customer.invalid/v2/payments/pay%2Fa%3Fx/get-intent');});
   const hyper=fs.readFileSync(path.join(repo,'src/hyper-loader/Hyper.res'),'utf8');
-  assert.match(hyper,/GlobalVars\.sdkVersion == V2[\s\S]*?CustomerIntentRead\.retrieve/);
+  assert.match(hyper,/GlobalVars\.sdkApiVersion == "v2"[\s\S]*?CustomerIntentRead\.retrieve/);
   assert.match(hyper,/~initializedClientSecret=clientSecret\.contents/);
-  assert.match(hyper,/~paymentId=paymentId\.contents/);
+  assert.match(hyper,/~paymentId=initializedPaymentId\.contents/);
   console.log(JSON.stringify({passed,kind:'actual compiled adaptor HTTP mocks; Hyper wiring source-checked',live:false}));
 }
 main().catch(error=>{console.error(error);process.exitCode=1;}).finally(()=>{

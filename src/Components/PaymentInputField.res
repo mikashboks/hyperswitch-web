@@ -1,4 +1,4 @@
-open RecoilAtoms
+open JotaiAtoms
 open PaymentTypeContext
 
 @react.component
@@ -13,7 +13,11 @@ let make = (
   ~onBlur=?,
   ~rightIcon=React.null,
   ~errorString=?,
+  ~onFocus=?,
   ~fieldName="",
+  ~isLabelHidden=false,
+  ~isErrorHidden=false,
+  ~id=?,
   ~name="",
   ~type_="text",
   ~maxLength=?,
@@ -25,22 +29,28 @@ let make = (
   ~isDisabled=false,
   ~autocomplete="on",
 ) => {
-  let {themeObj, config} = Recoil.useRecoilValueFromAtom(configAtom)
+  let {themeObj, config} = Jotai.useAtomValue(configAtom)
   let {innerLayout} = config.appearance
-  let {readOnly} = Recoil.useRecoilValueFromAtom(optionAtom)
-  let {parentURL} = Recoil.useRecoilValueFromAtom(keys)
+  let {readOnly} = Jotai.useAtomValue(optionAtom)
+  let {parentURL, iframeId} = Jotai.useAtomValue(keys)
   let contextPaymentType = usePaymentType()
   let paymentType = paymentType->Option.getOr(contextPaymentType)
+  let elementType = contextPaymentType->CardThemeType.getPaymentModeToString
 
   let (inputFocused, setInputFocused) = React.useState(_ => false)
 
-  let handleFocus = _ => {
+  let handleFocus = ev => {
     setInputFocused(_ => true)
     switch setIsValid {
     | Some(fn) => fn(_ => None)
     | None => ()
     }
-    Utils.handleOnFocusPostMessage(~targetOrigin=parentURL)
+    switch onFocus {
+    | Some(fn) => fn(ev)
+    | None => ()
+    }
+
+    Utils.handleOnFocusPostMessage(~iframeId, ~elementType, ~targetOrigin=parentURL)
   }
 
   let handleBlur = ev => {
@@ -50,7 +60,7 @@ let make = (
     | Some(fn) => fn(ev)
     | None => ()
     }
-    Utils.handleOnBlurPostMessage(~targetOrigin=parentURL)
+    Utils.handleOnBlurPostMessage(~iframeId, ~elementType, ~targetOrigin=parentURL)
   }
 
   let backgroundClass = switch paymentType {
@@ -75,7 +85,7 @@ let make = (
       `${initialLabel}--empty`
     } else {
       switch isValid {
-      | Some(valid) => valid ? "" : `${initialLabel}--invalid`
+      | Some(valid) => valid ? `${initialLabel}--valid` : `${initialLabel}--invalid`
       | None => ""
       }
     }
@@ -87,7 +97,8 @@ let make = (
 
   <div className="flex flex-col w-full" style={color: themeObj.colorText}>
     <RenderIf
-      condition={fieldName->String.length > 0 &&
+      condition={!isLabelHidden &&
+      fieldName->String.length > 0 &&
       config.appearance.labels == Above &&
       innerLayout === Spaced}>
       <div
@@ -111,6 +122,7 @@ let make = (
             width: fieldWidth,
             height,
           }
+          ?id
           dataTestId={name}
           disabled={isDisabled || readOnly}
           ref={inputRef->ReactDOM.Ref.domRef}
@@ -127,9 +139,9 @@ let make = (
           onFocus=handleFocus
           ariaLabel={`Type to fill ${fieldName->String.length > 0 ? fieldName : name} input`}
         />
-        <RenderIf condition={config.appearance.labels == Floating}>
+        <RenderIf condition={!isLabelHidden && config.appearance.labels == Floating}>
           <div
-            className={`Label ${floatinglabelClass} ${labelClass} absolute bottom-0 ml-3 ${focusClass} text-opacity-20 pointer-events-none`}
+            className={`Label ${floatinglabelClass} ${labelClass} absolute bottom-0 ml-3 ${focusClass} pointer-events-none`}
             style={
               marginBottom: {
                 inputFocused || value->String.length > 0 ? "" : themeObj.spacingUnit
@@ -146,7 +158,7 @@ let make = (
         {rightIcon}
       </div>
     </div>
-    <RenderIf condition={innerLayout === Spaced}>
+    <RenderIf condition={innerLayout === Spaced && !isErrorHidden}>
       {switch errorString {
       | Some(val) =>
         <RenderIf condition={val->String.length > 0}>

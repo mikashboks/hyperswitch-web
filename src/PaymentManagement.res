@@ -1,5 +1,5 @@
 open PaymentType
-open RecoilAtoms
+open JotaiAtoms
 
 @react.component
 let make = (
@@ -9,16 +9,13 @@ let make = (
   ~cvcProps: CardUtils.cvcProps,
 ) => {
   let divRef = React.useRef(Nullable.null)
-  let {themeObj, localeString} = Recoil.useRecoilValueFromAtom(configAtom)
-  let {savedPaymentMethods} = Recoil.useRecoilValueFromAtom(optionAtom)
-  let (savedMethods, setSavedMethods) = React.useState(_ => [])
-  let (savedMethodsV2, setSavedMethodsV2) = Recoil.useRecoilState(RecoilAtomsV2.savedMethodsV2)
+  let {themeObj, localeString} = Jotai.useAtomValue(configAtom)
+  let {sdkHandleSavePayment} = Jotai.useAtomValue(optionAtom)
+  let (savedMethodsV2, setSavedMethodsV2) = Jotai.useAtom(JotaiAtomsV2.savedMethodsV2)
   let (isLoading, setIsLoading) = React.useState(_ => false)
-  let (showAddScreen, setShowAddScreen) = Recoil.useRecoilState(RecoilAtomsV2.showAddScreen)
-  let (cardBrandValue, setCardBrand) = Recoil.useRecoilState(cardBrand)
-  let paymentManagementListValue = Recoil.useRecoilValueFromAtom(
-    PaymentUtils.paymentManagementListValue,
-  )
+  let (showAddScreen, setShowAddScreen) = Jotai.useAtom(JotaiAtomsV2.showAddScreen)
+  let (cardBrandValue, setCardBrand) = Jotai.useAtom(cardBrand)
+  let paymentManagementListValue = Jotai.useAtomValue(PaymentUtils.paymentManagementListValue)
   let handleBack = _ => {
     setShowAddScreen(_ => false)
   }
@@ -40,48 +37,20 @@ let make = (
     None
   }, [savedMethodsV2->Array.length])
 
-  let paymentManagementList = Recoil.useRecoilValueFromAtom(RecoilAtomsV2.paymentManagementList)
-  let (savedPaymentMethodsV2, setSavedPaymentMethodsV2) = Recoil.useRecoilState(
+  let paymentManagementList = Jotai.useAtomValue(JotaiAtomsV2.paymentManagementList)
+  let (savedPaymentMethodsV2, setSavedPaymentMethodsV2) = Jotai.useAtom(
     PaymentUtils.paymentManagementListValue,
   )
-  let {showCardFormByDefault, displaySavedPaymentMethods} = Recoil.useRecoilValueFromAtom(
-    optionAtom,
-  )
+  let {displaySavedPaymentMethods} = Jotai.useAtomValue(optionAtom)
   React.useEffect(() => {
     switch paymentManagementList {
     | LoadedV2(val) =>
       setSavedPaymentMethodsV2(_ => val)
       setIsLoading(_ => false)
-    | _ => ()
+    | _ => setIsLoading(_ => true)
     }
     None
-  }, (paymentManagementList, showCardFormByDefault))
-
-  React.useEffect(() => {
-    switch savedPaymentMethods {
-    | LoadedSavedCards(savedPaymentMethods, _) => {
-        let defaultPaymentMethod =
-          savedPaymentMethods->Array.find(savedCard => savedCard.defaultPaymentMethodSet)
-
-        let savedCardsWithoutDefaultPaymentMethod = savedPaymentMethods->Array.filter(savedCard => {
-          !savedCard.defaultPaymentMethodSet
-        })
-
-        let finalSavedPaymentMethods = switch defaultPaymentMethod {
-        | Some(defaultPaymentMethod) =>
-          [defaultPaymentMethod]->Array.concat(savedCardsWithoutDefaultPaymentMethod)
-        | None => savedCardsWithoutDefaultPaymentMethod
-        }
-
-        setSavedMethods(_ => finalSavedPaymentMethods)
-        setIsLoading(_ => false)
-      }
-    | LoadingSavedCards => setIsLoading(_ => true)
-    | NoResult(_) => setIsLoading(_ => false)
-    }
-
-    None
-  }, (savedPaymentMethods, displaySavedPaymentMethods))
+  }, [paymentManagementList])
 
   React.useEffect(() => {
     let cardError = switch (
@@ -138,9 +107,11 @@ let make = (
           />
         </RenderIf>
         <PaymentElementRendererLazy paymentType cardProps cvcProps expiryProps />
-        <div className="mt-4">
-          <PayNowButton label="Save card" />
-        </div>
+        <RenderIf condition={sdkHandleSavePayment.handleSave}>
+          <div className="mt-4">
+            <PayNowButton label="Save card" />
+          </div>
+        </RenderIf>
       </div>
     </RenderIf>
     <RenderIf
@@ -150,12 +121,7 @@ let make = (
     </RenderIf>
     <RenderIf condition={!showAddScreen}>
       <RenderIf condition={!isLoading}>
-        <SavedPaymentManagement savedMethods setSavedMethods />
-      </RenderIf>
-      <RenderIf condition={isLoading}>
-        <PaymentElementShimmer.SavedPaymentShimmer />
-      </RenderIf>
-      <RenderIf condition={GlobalVars.sdkVersion == V2}>
+        <SavedPaymentManagement cvcProps />
         <div
           className="Label flex flex-row gap-3 items-end cursor-pointer mt-4"
           style={
@@ -166,13 +132,16 @@ let make = (
             color: themeObj.colorPrimary,
           }
           role="button"
-          ariaLabel="Click to use more payment methods"
+          ariaLabel="Click to use new payment methods"
           tabIndex=0
           onClick={_ => setShowAddScreen(_ => true)}
           dataTestId={TestUtils.addNewCardIcon}>
           <Icon name="plus" size=19 />
           {React.string("Add new card")}
         </div>
+      </RenderIf>
+      <RenderIf condition={isLoading}>
+        <PaymentElementShimmer.SavedPaymentShimmer />
       </RenderIf>
     </RenderIf>
     <PoweredBy />

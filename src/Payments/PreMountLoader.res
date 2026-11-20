@@ -1,38 +1,71 @@
-let sendPromiseData = (promise, key) => {
+let sendPromiseData = (promise, key, ~targetOrigin) => {
   let executePromise = async () => {
     let response = try {
       await promise
     } catch {
     | _ => JSON.Encode.null
     }
-    Utils.messageParentWindow([("response", response), ("data", key->JSON.Encode.string)])
+    Utils.messageParentWindow(
+      [("response", response), ("data", key->JSON.Encode.string)],
+      ~targetOrigin,
+    )
   }
   executePromise()->ignore
 }
 
 let useMessageHandler = getMessageHandler => {
   React.useEffect(_ => {
-    let messageHandler = getMessageHandler()
+    let processMessage = getMessageHandler()
+    let parentOrigin = ref(None)
+    let isFromParent = (ev: Window.event) => {
+      if ev.source !== Utils.iframeParent || !PaymentMessageSecurity.isConcreteOrigin(ev.origin) {
+        false
+      } else {
+        switch parentOrigin.contents {
+        | Some(expected) => ev.origin === expected
+        | None =>
+          parentOrigin := Some(ev.origin)
+          true
+        }
+      }
+    }
+    let messageHandler = (ev: Window.event) => {
+      if isFromParent(ev) {
+        processMessage(ev)
+      }
+    }
+    let sendLifecycleMessage = message => {
+      Utils.messageParentWindow(message, ~targetOrigin=parentOrigin.contents->Option.getOr("*"))
+    }
 
     let setupMessageListener = _ => {
       Window.addEventListener("message", messageHandler)
-      Utils.messageParentWindow([("preMountLoaderIframeMountedCallback", true->JSON.Encode.bool)])
+      sendLifecycleMessage([("preMountLoaderIframeMountedCallback", true->JSON.Encode.bool)])
     }
 
     let cleanupMessageListener = _ => {
       Window.removeEventListener("message", messageHandler)
-      Utils.messageParentWindow([("preMountLoaderIframeUnMount", true->JSON.Encode.bool)])
+      sendLifecycleMessage([("preMountLoaderIframeUnMount", true->JSON.Encode.bool)])
     }
 
     let handleCleanUpEventListener = (ev: Window.event) => {
       open Utils
       let dict = ev.data->safeParse->getDictFromJson
-      if dict->Dict.get("cleanUpPreMountLoaderIframe")->Option.isSome {
+      if isFromParent(ev) && dict->Dict.get("cleanUpPreMountLoaderIframe")->Option.isSome {
         cleanupMessageListener()
       }
     }
 
+    let handleResendMountedCallback = (ev: Window.event) => {
+      open Utils
+      let dict = ev.data->safeParse->getDictFromJson
+      if isFromParent(ev) && dict->Dict.get("requestPreMountLoaderMountedCallback")->Option.isSome {
+        sendLifecycleMessage([("preMountLoaderIframeMountedCallback", true->JSON.Encode.bool)])
+      }
+    }
+
     Window.addEventListener("message", handleCleanUpEventListener)
+    Window.addEventListener("message", handleResendMountedCallback)
 
     setupMessageListener()
 
@@ -40,138 +73,92 @@ let useMessageHandler = getMessageHandler => {
       () => {
         cleanupMessageListener()
         Window.removeEventListener("message", handleCleanUpEventListener)
+        Window.removeEventListener("message", handleResendMountedCallback)
       },
     )
   }, [])
 }
 
 let getMessageHandlerV1Elements = (
+  ~sdkAuthorization,
   ~clientSecret,
   ~publishableKey,
   ~logger,
   ~customPodUri,
   ~endpoint,
   ~merchantHostname,
+  ~isTestMode=false,
+  ~isSdkParamsEnabled=false,
 ) => {
-  let paymentMethodsPromise = PaymentHelpers.fetchPaymentMethodList(
-    ~clientSecret,
-    ~publishableKey,
-    ~logger,
-    ~customPodUri,
-    ~endpoint,
-  )
+  let (sessionTokensPromise, sdkConfigsPromise, clientListPromise) = if (
+    isTestMode || isSdkParamsEnabled
+  ) {
+    let mockResponse = Dict.make()->JSON.Encode.object
 
-  let customerPaymentMethodsPromise = PaymentHelpers.fetchCustomerPaymentMethodList(
-    ~clientSecret,
-    ~publishableKey,
-    ~logger,
-    ~customPodUri,
-    ~endpoint,
-  )
-
-  let sessionTokensPromise = PaymentHelpers.fetchSessions(
-    ~clientSecret,
-    ~publishableKey,
-    ~logger,
-    ~customPodUri,
-    ~endpoint,
-    ~merchantHostname,
-  )
-
-  ev => {
-    open Utils
-    let dict = ev.data->safeParse->getDictFromJson
-    if dict->isKeyPresentInDict("sendPaymentMethodsResponse") {
-      paymentMethodsPromise->sendPromiseData("payment_methods")
-    } else if dict->isKeyPresentInDict("sendCustomerPaymentMethodsResponse") {
-      customerPaymentMethodsPromise->sendPromiseData("customer_payment_methods")
-    } else if dict->isKeyPresentInDict("sendSessionTokensResponse") {
-      sessionTokensPromise->sendPromiseData("session_tokens")
-    }
+    (Promise.resolve(mockResponse), Promise.resolve(mockResponse), Promise.resolve(mockResponse))
+  } else {
+    (
+      PaymentHelpers.fetchSessions(
+        ~clientSecret,
+        ~publishableKey,
+        ~logger,
+        ~customPodUri,
+        ~endpoint,
+        ~merchantHostname,
+        ~sdkAuthorization=Some(sdkAuthorization),
+      ),
+      PaymentHelpers.fetchSdkConfigs(
+        ~clientSecret,
+        ~publishableKey,
+        ~logger,
+        ~customPodUri,
+        ~endpoint,
+        ~sdkAuthorization=Some(sdkAuthorization),
+      ),
+      PaymentHelpers.fetchClientList(
+        ~clientSecret,
+        ~publishableKey,
+        ~logger,
+        ~customPodUri,
+        ~endpoint,
+        ~sdkAuthorization=Some(sdkAuthorization),
+      ),
+    )
   }
-}
 
-let getMessageHandlerV2Elements = (
-  ~clientSecret,
-  ~paymentId,
-  ~publishableKey,
-  ~logger,
-  ~customPodUri,
-  ~endpoint,
-  ~profileId,
-) => {
-  let paymentMethodsListPromise = PaymentHelpersV2.fetchPaymentMethodList(
-    ~clientSecret,
-    ~paymentId,
-    ~publishableKey,
-    ~logger,
-    ~customPodUri,
-    ~endpoint,
-    ~profileId,
-  )
-
-  let sessionTokensPromise = PaymentHelpersV2.fetchSessions(
-    ~clientSecret,
-    ~paymentId,
-    ~profileId,
-    ~publishableKey,
-    ~optLogger=Some(logger),
-    ~customPodUri,
-    ~endpoint,
-  )
-
-  ev => {
+  (ev: Window.event) => {
     open Utils
     let dict = ev.data->safeParse->getDictFromJson
-    if dict->isKeyPresentInDict("sendPaymentMethodsListV2Response") {
-      paymentMethodsListPromise->sendPromiseData("payment_methods_list_v2")
-    } else if dict->isKeyPresentInDict("sendSessionTokensResponse") {
-      sessionTokensPromise->sendPromiseData("session_tokens")
-    }
-  }
-}
-
-let getMessageHandlerV1PMM = (~ephemeralKey, ~logger, ~customPodUri, ~endpoint) => {
-  let savedPaymentMethodsPromise = PaymentHelpers.fetchSavedPaymentMethodList(
-    ~ephemeralKey,
-    ~logger,
-    ~customPodUri,
-    ~endpoint,
-  )
-
-  ev => {
-    open Utils
-    let dict = ev.data->safeParse->getDictFromJson
-    if dict->isKeyPresentInDict("sendSavedPaymentMethodsResponse") {
-      savedPaymentMethodsPromise->sendPromiseData("saved_payment_methods")
+    if dict->isKeyPresentInDict("sendSessionTokensResponse") {
+      sessionTokensPromise->sendPromiseData("session_tokens", ~targetOrigin=ev.origin)
+    } else if dict->isKeyPresentInDict("sendSdkConfigsResponse") {
+      sdkConfigsPromise->sendPromiseData("sdk_configs", ~targetOrigin=ev.origin)
+    } else if dict->isKeyPresentInDict("sendClientListResponse") {
+      clientListPromise->sendPromiseData("client_list", ~targetOrigin=ev.origin)
     }
   }
 }
 
 let getMessageHandlerV2PMM = (
   ~pmSessionId,
-  ~pmClientSecret,
-  ~publishableKey,
-  ~profileId,
   ~logger,
   ~customPodUri,
   ~endpoint,
+  ~sdkAuthorization,
 ) => {
   let listPromise = PaymentHelpersV2.fetchPaymentManagementList(
     ~pmSessionId,
-    ~pmClientSecret,
-    ~publishableKey,
-    ~profileId,
     ~optLogger=Some(logger),
     ~customPodUri,
     ~endpoint,
+    ~sdkAuthorization,
   )
 
-  ev => {
+  (ev: Window.event) => {
     open Utils
     let dict = ev.data->safeParse->getDictFromJson
     if dict->isKeyPresentInDict("sendPaymentManagementListResponse") {
-      listPromise->sendPromiseData("payment_management_list")
+      listPromise->sendPromiseData("payment_management_list", ~targetOrigin=ev.origin)
     }
   }
 }
@@ -181,35 +168,26 @@ module PreMountLoaderForElements = {
   let make = (
     ~logger,
     ~publishableKey,
+    ~sdkAuthorization,
     ~clientSecret,
-    ~paymentId,
     ~endpoint,
     ~merchantHostname,
     ~customPodUri,
-    ~profileId,
+    ~isTestMode=false,
+    ~isSdkParamsEnabled=false,
   ) => {
     useMessageHandler(() =>
-      switch GlobalVars.sdkVersion {
-      | V1 =>
-        getMessageHandlerV1Elements(
-          ~clientSecret,
-          ~publishableKey,
-          ~logger,
-          ~customPodUri,
-          ~endpoint,
-          ~merchantHostname,
-        )
-      | V2 =>
-        getMessageHandlerV2Elements(
-          ~clientSecret,
-          ~paymentId,
-          ~publishableKey,
-          ~logger,
-          ~customPodUri,
-          ~endpoint,
-          ~profileId,
-        )
-      }
+      getMessageHandlerV1Elements(
+        ~sdkAuthorization,
+        ~clientSecret,
+        ~publishableKey,
+        ~logger,
+        ~customPodUri,
+        ~endpoint,
+        ~merchantHostname,
+        ~isTestMode,
+        ~isSdkParamsEnabled,
+      )
     )
 
     React.null
@@ -218,30 +196,9 @@ module PreMountLoaderForElements = {
 
 module PreMountLoaderForPMMElements = {
   @react.component
-  let make = (
-    ~logger,
-    ~endpoint,
-    ~ephemeralKey,
-    ~customPodUri,
-    ~pmSessionId,
-    ~pmClientSecret,
-    ~publishableKey,
-    ~profileId,
-  ) => {
+  let make = (~logger, ~endpoint, ~customPodUri, ~pmSessionId, ~sdkAuthorization) => {
     useMessageHandler(() =>
-      switch GlobalVars.sdkVersion {
-      | V1 => getMessageHandlerV1PMM(~ephemeralKey, ~logger, ~customPodUri, ~endpoint)
-      | V2 =>
-        getMessageHandlerV2PMM(
-          ~pmSessionId,
-          ~pmClientSecret,
-          ~publishableKey,
-          ~profileId,
-          ~logger,
-          ~customPodUri,
-          ~endpoint,
-        )
-      }
+      getMessageHandlerV2PMM(~pmSessionId, ~sdkAuthorization, ~logger, ~customPodUri, ~endpoint)
     )
 
     React.null
@@ -252,16 +209,15 @@ module PreMountLoaderForPMMElements = {
 let make = (
   ~sessionId,
   ~publishableKey,
-  ~profileId,
+  ~sdkAuthorization,
   ~clientSecret,
   ~endpoint,
-  ~paymentId,
-  ~ephemeralKey,
   ~pmSessionId,
-  ~pmClientSecret,
   ~hyperComponentName: Types.hyperComponentName,
   ~merchantHostname,
   ~customPodUri,
+  ~isTestMode=false,
+  ~isSdkParamsEnabled=false,
 ) => {
   let logger = HyperLogger.make(
     ~sessionId,
@@ -273,11 +229,17 @@ let make = (
   switch hyperComponentName {
   | Elements =>
     <PreMountLoaderForElements
-      logger publishableKey clientSecret endpoint merchantHostname customPodUri profileId paymentId
+      logger
+      publishableKey
+      sdkAuthorization
+      clientSecret
+      endpoint
+      merchantHostname
+      customPodUri
+      isTestMode
+      isSdkParamsEnabled
     />
   | PaymentMethodsManagementElements =>
-    <PreMountLoaderForPMMElements
-      logger endpoint ephemeralKey customPodUri pmSessionId pmClientSecret publishableKey profileId
-    />
+    <PreMountLoaderForPMMElements logger endpoint customPodUri pmSessionId sdkAuthorization />
   }
 }

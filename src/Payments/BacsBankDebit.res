@@ -1,12 +1,12 @@
-open RecoilAtoms
-open RecoilAtomTypes
+open JotaiAtoms
+open JotaiAtomTypes
 open Utils
 
 let formatSortCode = sortcode => {
   let formatted = sortcode->String.replaceRegExp(%re("/\D+/g"), "")
-  let firstPart = formatted->CardUtils.slice(0, 2)
-  let secondPart = formatted->CardUtils.slice(2, 4)
-  let thirdpart = formatted->CardUtils.slice(4, 6)
+  let firstPart = formatted->String.slice(~start=0, ~end=2)
+  let secondPart = formatted->String.slice(~start=2, ~end=4)
+  let thirdpart = formatted->String.slice(~start=4, ~end=6)
 
   if formatted->String.length <= 2 {
     firstPart
@@ -22,24 +22,25 @@ let cleanSortCode = str => str->String.replaceRegExp(%re("/-/g"), "")
 
 @react.component
 let make = () => {
-  let loggerState = Recoil.useRecoilValueFromAtom(loggerAtom)
-  let isManualRetryEnabled = Recoil.useRecoilValueFromAtom(RecoilAtoms.isManualRetryEnabled)
-  let {themeObj, localeString} = Recoil.useRecoilValueFromAtom(configAtom)
-  let {displaySavedPaymentMethods} = Recoil.useRecoilValueFromAtom(optionAtom)
+  let loggerState = Jotai.useAtomValue(loggerAtom)
+  let isManualRetryEnabled = Jotai.useAtomValue(JotaiAtoms.isManualRetryEnabled)
+  let {themeObj, localeString} = Jotai.useAtomValue(configAtom)
+  let {displaySavedPaymentMethods, layout} = Jotai.useAtomValue(optionAtom)
+  let layoutClass = CardUtils.getLayoutClass(layout)
 
   let intent = PaymentHelpers.usePaymentIntent(Some(loggerState), BankDebits)
-  let (email, _) = Recoil.useLoggedRecoilState(userEmailAddress, "email", loggerState)
-  let (line1, _) = Recoil.useLoggedRecoilState(userAddressline1, "line1", loggerState)
-  let (line2, _) = Recoil.useLoggedRecoilState(userAddressline2, "line2", loggerState)
-  let (country, _) = Recoil.useLoggedRecoilState(userAddressCountry, "country", loggerState)
-  let (city, _) = Recoil.useLoggedRecoilState(userAddressCity, "city", loggerState)
-  let (postalCode, _) = Recoil.useLoggedRecoilState(userAddressPincode, "postal_code", loggerState)
-  let (state, _) = Recoil.useLoggedRecoilState(userAddressState, "state", loggerState)
-  let (fullName, _) = Recoil.useLoggedRecoilState(userFullName, "fullName", loggerState)
-  let setComplete = Recoil.useSetRecoilState(fieldsComplete)
+  let email = Jotai.useAtomValue(userEmailAddress)
+  let line1 = Jotai.useAtomValue(userAddressline1)
+  let line2 = Jotai.useAtomValue(userAddressline2)
+  let country = Jotai.useAtomValue(userAddressCountry)
+  let city = Jotai.useAtomValue(userAddressCity)
+  let postalCode = Jotai.useAtomValue(userAddressPincode)
+  let state = Jotai.useAtomValue(userAddressState)
+  let fullName = Jotai.useAtomValue(userFullName)
+  let setComplete = Jotai.useSetAtom(fieldsComplete)
   let (sortcode, setSortcode) = React.useState(_ => "")
   let (accountNumber, setAccountNumber) = React.useState(_ => "")
-  let paymentMethodListValue = Recoil.useRecoilValueFromAtom(PaymentUtils.paymentMethodListValue)
+  let paymentMethodListValue = Jotai.useAtomValue(PaymentUtils.paymentMethodListValue)
   let countryCode = Utils.getCountryCode(country.value).isoAlpha2
   let stateCode = Utils.getStateCodeFromStateName(state.value, countryCode)
 
@@ -78,6 +79,7 @@ let make = () => {
     state.value == ""
 
   UtilityHooks.useHandlePostMessages(~complete, ~empty, ~paymentType="bacs_bank_debit")
+  SubscriptionEventHooks.useEmitFormStatus(~empty, ~complete)
 
   React.useEffect(() => {
     setComplete(_ => complete)
@@ -114,7 +116,7 @@ let make = () => {
       }
     }
   }
-  useSubmitPaymentData(submitCallback)
+  PaymentMessageHooks.useSubmitPaymentData(submitCallback)
 
   let changeSortCode = ev => {
     let val = ReactEvent.Form.target(ev)["value"]
@@ -132,12 +134,18 @@ let make = () => {
     }
   }
 
+  let paymentMethodType = "bacs"
+  let paymentMethod = "bank_debit"
+
   <>
     <RenderIf condition={isVerifyPMAuthConnectorConfigured}>
       <AddBankDetails paymentMethodType="bacs" />
     </RenderIf>
     <RenderIf condition={!isVerifyPMAuthConnectorConfigured}>
       <div className="flex flex-col animate-slowShow" style={gridGap: themeObj.spacingGridColumn}>
+        <RenderIf condition={layoutClass.\"type" === Accordion}>
+          <Space height="0" />
+        </RenderIf>
         <div className="flex flex-row" style={gridGap: themeObj.spacingGridRow}>
           <PaymentInputField
             fieldName=localeString.sortCodeText
@@ -163,7 +171,8 @@ let make = () => {
         <EmailPaymentInput />
         <FullNamePaymentInput customFieldName=Some("Bank Holder Name") />
         <AddressPaymentInput />
-        <Surcharge paymentMethod="bank_debit" paymentMethodType="bacs" />
+        <Surcharge paymentMethod paymentMethodType />
+        <Terms paymentMethod paymentMethodType />
       </div>
     </RenderIf>
   </>

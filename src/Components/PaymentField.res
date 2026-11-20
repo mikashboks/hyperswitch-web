@@ -1,11 +1,11 @@
-open RecoilAtoms
-open RecoilAtomTypes
+open JotaiAtoms
+open JotaiAtomTypes
 open PaymentTypeContext
 
 @react.component
 let make = (
   ~setValue=?,
-  ~value: RecoilAtomTypes.field,
+  ~value: JotaiAtomTypes.field,
   ~valueDropDown=?,
   ~setValueDropDown=?,
   ~dropDownFieldName=?,
@@ -25,13 +25,15 @@ let make = (
   ~displayValue=?,
   ~setDisplayValue=?,
 ) => {
-  let {config} = Recoil.useRecoilValueFromAtom(configAtom)
-  let {themeObj} = Recoil.useRecoilValueFromAtom(configAtom)
-  let {readOnly} = Recoil.useRecoilValueFromAtom(optionAtom)
-  let {parentURL} = Recoil.useRecoilValueFromAtom(keys)
+  let {config} = Jotai.useAtomValue(configAtom)
+  let {themeObj} = Jotai.useAtomValue(configAtom)
+  let {readOnly} = Jotai.useAtomValue(optionAtom)
+  let {parentURL, iframeId} = Jotai.useAtomValue(keys)
+  let loggerState = Jotai.useAtomValue(loggerAtom)
   let isSpacedInnerLayout = config.appearance.innerLayout === Spaced
   let contextPaymentType = usePaymentType()
   let paymentType = paymentType->Option.getOr(contextPaymentType)
+  let elementType = contextPaymentType->CardThemeType.getPaymentModeToString
 
   let (inputFocused, setInputFocused) = React.useState(_ => false)
 
@@ -46,7 +48,7 @@ let make = (
       })
     | None => ()
     }
-    Utils.handleOnFocusPostMessage(~targetOrigin=parentURL)
+    Utils.handleOnFocusPostMessage(~iframeId, ~elementType, ~targetOrigin=parentURL)
   }
 
   let handleBlur = ev => {
@@ -56,7 +58,7 @@ let make = (
     | Some(fn) => fn(ev)
     | None => ()
     }
-    Utils.handleOnBlurPostMessage(~targetOrigin=parentURL)
+    Utils.handleOnBlurPostMessage(~iframeId, ~elementType, ~targetOrigin=parentURL)
   }
 
   let backgroundClass = switch paymentType {
@@ -81,17 +83,27 @@ let make = (
       `${initialLabel}--empty`
     } else {
       switch value.isValid {
-      | Some(valid) => valid ? "" : `${initialLabel}--invalid`
+      | Some(valid) => valid ? `${initialLabel}--valid` : `${initialLabel}--invalid`
       | None => ""
       }
     }
   }
   let labelClass = getClassName("Label")
   let inputClass = getClassName("Input")
-
+  let inputLogoClass = getClassName("InputLogo")
   let inputClassStyles = isSpacedInnerLayout ? "Input" : "Input-Compressed"
 
   let flexDirectionBasedOnType = type_ === "tel" ? "flex-row" : "flex-col"
+
+  // Wrap onChange to include logging
+  let wrappedOnChange = ev => {
+    // Log the input change using the name parameter
+    if name->String.length > 0 {
+      LoggerUtils.logInputChangeInfo(name, loggerState)
+    }
+    // Call the original onChange handler
+    onChange(ev)
+  }
 
   <div className="flex flex-col w-full">
     <RenderIf
@@ -162,14 +174,14 @@ let make = (
               : ""}
             value={value.value}
             autoComplete="on"
-            onChange
+            onChange=wrappedOnChange
             onBlur=handleBlur
             onFocus=handleFocus
             ariaLabel={`Type to fill ${fieldName->String.length > 0 ? fieldName : name} input`}
           />
           <RenderIf condition={config.appearance.labels == Floating}>
             <div
-              className={`Label ${floatinglabelClass} ${labelClass} absolute bottom-0 ml-3 ${focusClass}`}
+              className={`Label ${floatinglabelClass} ${labelClass} absolute bottom-0 ml-3 ${focusClass} pointer-events-none`}
               style={
                 marginBottom: {
                   inputFocused || value.value->String.length > 0 ? "" : themeObj.spacingUnit
@@ -184,7 +196,9 @@ let make = (
             </div>
           </RenderIf>
         </div>
-        <div className={`relative flex -ml-10  items-center`}> {rightIcon} </div>
+        <div className={`InputLogo ${inputLogoClass} relative flex -ml-10  items-center`}>
+          {rightIcon}
+        </div>
       </div>
       <RenderIf condition={value.errorString->String.length > 0}>
         <div

@@ -1,25 +1,13 @@
 @react.component
-let make = (~branding="auto", ~showText=true) => {
-  let arr = ["hyperswitch-triangle", "hyperswitch-square", "hyperswitch-circle"]
-
+let make = (~branding=?, ~showText=true) => {
+  let {branding: sdkBranding} = Jotai.useAtomValue(JotaiAtoms.optionAtom)
+  let branding: PaymentType.showType = branding->Option.getOr(sdkBranding)
   <div className="flex flex-col gap-10 justify-center items-center">
     <div className="flex flex-row gap-10">
-      <RenderIf condition={branding === "auto"}>
-        {arr
-        ->Array.mapWithIndex((item, i) => {
-          <Icon
-            size=52
-            style={
-              animation: "slowShow 1.5s ease-in-out infinite",
-              animationDelay: {((i + 1) * 180)->Int.toString ++ "ms"},
-            }
-            name=item
-            key={i->Int.toString}
-          />
-        })
-        ->React.array}
+      <RenderIf condition={branding === Auto}>
+        <NooryMark size=52 className="animate-pulse motion-reduce:animate-none" />
       </RenderIf>
-      <RenderIf condition={branding === "never"}>
+      <RenderIf condition={branding === Never}>
         <div
           className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-[#0069FD] border-r-transparent align-[-0.125em] motion-reduce:animate-[spin_1.5s_linear_infinite]"
           role="status">

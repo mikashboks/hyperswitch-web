@@ -16,6 +16,7 @@ const localhostSources = [
   "http://localhost:8207",
   "http://localhost:3103",
   "http://localhost:5252",
+  "http://localhost:9060",
   "http://127.0.0.1:8080",
   "http://127.0.0.1:8207",
   "http://127.0.0.1:3103",
@@ -100,6 +101,7 @@ function extractBaseDSNUrl(dsn) {
 const authorizedConnectSources = [
   "'self'",
   "https://checkout.hyperswitch.io",
+  "https://eu.hyperswitch.io",
   "https://dev.hyperswitch.io",
   "https://beta.hyperswitch.io",
   "https://live.hyperswitch.io",
@@ -121,6 +123,11 @@ const authorizedConnectSources = [
   "https://eu.klarnaevt.com",
   "https://js.verygoodvault.com/vgs-collect/2.27.2/vgs-collect.js",
   "https://vgs-collect-keeper.apps.verygood.systems/vgs",
+  // VGS edge endpoints — where vault.submit() POSTs (Hyperswitch iframe flow).
+  // Covers both {vaultId}.sandbox.verygoodvault.com and {vaultId}.live.verygoodvault.com.
+  // The direct-injection flow runs in the merchant page, so merchants must
+  // whitelist VGS in their own CSP as well.
+  "https://*.verygoodvault.com",
   "https://eu.playground.klarnaevt.com",
   extractBaseDSNUrl(process.env.SENTRY_DSN),
   ...localhostSources,
@@ -134,9 +141,13 @@ const getEnvVariable = (variable, defaultValue) => {
 };
 
 const sdkEnv = getEnvVariable("sdkEnv", "local");
+const hyperswitchStack = getEnvVariable("HYPERSWITCH_STACK", "");
+const isEUStack = hyperswitchStack === "eu";
 const ENABLE_LOGGING = getEnvVariable("ENABLE_LOGGING", "false") === "true";
+const DISABLE_CSP = getEnvVariable("DISABLE_CSP", "false") === "true";
 const envSdkUrl = getEnvVariable("ENV_SDK_URL", "");
 const envBackendUrl = getEnvVariable("ENV_BACKEND_URL", "");
+const isPciCompliant = getEnvVariable("IS_PCI_COMPLIANT", "true") === "true";
 const envLoggingUrl = getEnvVariable("ENV_LOGGING_URL", "");
 const visaAPIKeyId = getEnvVariable("VISA_API_KEY_ID", "");
 const visaAPICertificatePem = getEnvVariable("VISA_API_CERTIFICATE_PEM", "");
@@ -159,11 +170,16 @@ const sdkVersionValue = getEnvVariable("SDK_VERSION", "v1");
 // Repository info
 const repoName = require("./package.json").name;
 const repoPublicPath =
-  sdkEnv === "local" ? "" : `/web/${repoVersion}/${sdkVersionValue}`;
+  sdkEnv === "local"
+    ? getEnvVariable("SDK_PUBLIC_PATH", "")
+    : `${
+        isEUStack && sdkEnv === "prod" ? "/sdk" : ""
+      }/web/${repoVersion}/${sdkVersionValue}`;
 
 // Helper function to get SDK URL based on environment
 const getSdkUrl = (env, customUrl) => {
   if (customUrl) return customUrl;
+  if (isEUStack && env === "prod") return "https://eu.hyperswitch.io";
   const urls = {
     prod: "https://checkout.hyperswitch.io",
     sandbox: "https://beta.hyperswitch.io",
@@ -194,10 +210,16 @@ const confirmDomain = getEnvironmentDomain("live", "integ", "app");
 
 // Backend and confirm endpoints
 const backendEndPoint =
-  envBackendUrl || `https://${backendDomain}.hyperswitch.io/api`;
+  envBackendUrl ||
+  (isEUStack && sdkEnv === "prod"
+    ? "https://eu.hyperswitch.io/api"
+    : `https://${backendDomain}.hyperswitch.io/api`);
 
 const confirmEndPoint =
-  envBackendUrl || `https://${confirmDomain}.hyperswitch.io/api`;
+  envBackendUrl ||
+  (isEUStack && sdkEnv === "prod"
+    ? "https://eu.hyperswitch.io/api"
+    : `https://${confirmDomain}.hyperswitch.io/api`);
 
 const logEndpoint = envLoggingUrl;
 
@@ -222,26 +244,34 @@ module.exports = (publicPath = "auto") => {
   const entries = {
     app: "./index.js",
     HyperLoader: "./src/hyper-loader/HyperLoader.bs.js",
+    ClickToPayAuthenticationSession:
+      "./src/hyper-loader/AuthenticationSessionMethods.bs.js",
   };
 
-  const definePluginValues = {
-    repoName: JSON.stringify(repoName),
-    repoVersion: JSON.stringify(repoVersion),
-    publicPath: JSON.stringify(repoPublicPath),
-    sdkUrl: JSON.stringify(sdkUrl),
-    backendEndPoint: JSON.stringify(backendEndPoint),
-    confirmEndPoint: JSON.stringify(confirmEndPoint),
-    logEndpoint: JSON.stringify(logEndpoint),
-    sentryDSN: JSON.stringify(process.env.SENTRY_DSN),
-    sentryScriptUrl: JSON.stringify(process.env.SENTRY_SCRIPT_URL),
+  const globalVars = {
+    repoName,
+    repoVersion,
+    sdkApiVersion: sdkVersionValue,
+    publicPath: repoPublicPath,
+    sdkUrl,
+    backendEndPoint,
+    confirmEndPoint,
+    logEndpoint,
+    sentryDSN: process.env.SENTRY_DSN,
+    sentryScriptUrl: process.env.SENTRY_SCRIPT_URL,
     enableLogging: ENABLE_LOGGING,
-    loggingLevel: JSON.stringify(loggingLevel),
-    maxLogsPushedPerEventName: JSON.stringify(maxLogsPushedPerEventName),
-    sdkVersionValue: JSON.stringify(sdkVersionValue),
+    loggingLevel,
+    maxLogsPushedPerEventName,
     isIntegrationEnv,
     isSandboxEnv,
     isProductionEnv,
     isLocal,
+    isPciCompliant,
+  };
+
+  const definePluginValues = {
+    __SDK_CONFIG__: JSON.stringify(globalVars),
+    publicPath: JSON.stringify(repoPublicPath),
     visaAPIKeyId: JSON.stringify(visaAPIKeyId),
     visaAPICertificatePem: JSON.stringify(visaAPICertificatePem),
   };
@@ -257,44 +287,50 @@ module.exports = (publicPath = "auto") => {
       template: "./public/build.html",
       chunks: ["app"],
       scriptLoading: "blocking",
-      //       // Add CSP meta tag
-      meta: {
-        "Content-Security-Policy": {
-          "http-equiv": "Content-Security-Policy",
-          content: `default-src 'self' ; script-src ${authorizedScriptSources.join(
-            " "
-          )};
+      // Add CSP meta tag conditionally
+      meta: DISABLE_CSP
+        ? {}
+        : {
+            "Content-Security-Policy": {
+              "http-equiv": "Content-Security-Policy",
+              content: `default-src 'self' ; script-src ${authorizedScriptSources.join(
+                " "
+              )};
                 style-src ${authorizedStyleSources.join(" ")};
                 frame-src ${authorizedFrameSources.join(" ")};
                 img-src ${authorizedImageSources.join(" ")};
                 font-src ${authorizedFontSources.join(" ")};
                 connect-src ${authorizedConnectSources.join(
                   " "
-                )} ${logEndpoint} ;
+                )} ${logEndpoint} ${backendEndPoint};
       `,
-        },
-      },
+            },
+          },
     }),
     new HtmlWebpackPlugin({
       // Also generate a test.html
       inject: true,
       filename: "fullscreenIndex.html",
       template: "./public/fullscreenIndexTemplate.html",
-      // Add CSP meta tag
-      meta: {
-        "Content-Security-Policy": {
-          "http-equiv": "Content-Security-Policy",
-          content: `default-src 'self' ; script-src ${authorizedScriptSources.join(
-            " "
-          )};
+      // Add CSP meta tag conditionally
+      meta: DISABLE_CSP
+        ? {}
+        : {
+            "Content-Security-Policy": {
+              "http-equiv": "Content-Security-Policy",
+              content: `default-src 'self' ; script-src ${authorizedScriptSources.join(
+                " "
+              )};
           style-src ${authorizedStyleSources.join(" ")};
           frame-src ${authorizedFrameSources.join(" ")};
           img-src ${authorizedImageSources.join(" ")};
           font-src ${authorizedFontSources.join(" ")};
-          connect-src ${authorizedConnectSources.join(" ")} ${logEndpoint} ;
+          connect-src ${authorizedConnectSources.join(
+            " "
+          )} ${logEndpoint} ${backendEndPoint};
           `,
-        },
-      },
+            },
+          },
     }),
     new SubresourceIntegrityPlugin({
       hashFuncNames: ["sha384"],
@@ -343,7 +379,12 @@ module.exports = (publicPath = "auto") => {
     output: {
       path: isLocal
         ? path.resolve(__dirname, "dist")
-        : path.resolve(__dirname, "dist", sdkEnv, sdkVersionValue),
+        : path.resolve(
+            __dirname,
+            "dist",
+            isEUStack ? `${sdkEnv}_eu` : sdkEnv,
+            sdkVersionValue
+          ),
       crossOriginLoading: "anonymous",
       clean: true,
       publicPath: `${repoPublicPath}/`,

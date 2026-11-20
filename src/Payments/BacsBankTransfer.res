@@ -1,23 +1,29 @@
-open RecoilAtoms
+open JotaiAtoms
 open Utils
 
 @react.component
 let default = () => {
-  let {iframeId} = Recoil.useRecoilValueFromAtom(keys)
-  let loggerState = Recoil.useRecoilValueFromAtom(loggerAtom)
-  let {themeObj} = Recoil.useRecoilValueFromAtom(configAtom)
-  let isManualRetryEnabled = Recoil.useRecoilValueFromAtom(RecoilAtoms.isManualRetryEnabled)
+  let {iframeId, sdkAuthorization} = Jotai.useAtomValue(keys)
+  let loggerState = Jotai.useAtomValue(loggerAtom)
+  let {themeObj} = Jotai.useAtomValue(configAtom)
+  let isManualRetryEnabled = Jotai.useAtomValue(JotaiAtoms.isManualRetryEnabled)
   let intent = PaymentHelpers.usePaymentIntent(Some(loggerState), BankTransfer)
-  let (email, _) = Recoil.useLoggedRecoilState(userEmailAddress, "email", loggerState)
-  let (fullName, _) = Recoil.useLoggedRecoilState(userFullName, "fullName", loggerState)
-  let setComplete = Recoil.useSetRecoilState(fieldsComplete)
+  let email = Jotai.useAtomValue(userEmailAddress)
+  let fullName = Jotai.useAtomValue(userFullName)
+  let setComplete = Jotai.useSetAtom(fieldsComplete)
+  let {layout} = Jotai.useAtomValue(optionAtom)
+  let layoutClass = CardUtils.getLayoutClass(layout)
 
   let (requiredFieldsBody, setRequiredFieldsBody) = React.useState(_ => Dict.make())
 
   let complete = email.value != "" && fullName.value != "" && email.isValid->Option.getOr(false)
   let empty = email.value == "" || fullName.value == ""
 
-  UtilityHooks.useHandlePostMessages(~complete, ~empty, ~paymentType="bank_transfer")
+  let paymentMethodType = "bacs"
+  let paymentMethod = "bank_transfer"
+
+  UtilityHooks.useHandlePostMessages(~complete, ~empty, ~paymentType=paymentMethod)
+  SubscriptionEventHooks.useEmitFormStatus(~empty, ~complete)
 
   React.useEffect(() => {
     setComplete(_ => complete)
@@ -30,7 +36,7 @@ let default = () => {
     if confirm.doSubmit {
       if complete {
         let bodyArr =
-          PaymentBody.dynamicPaymentBody("bank_transfer", "bacs")->mergeAndFlattenToTuples(
+          PaymentBody.dynamicPaymentBody(paymentMethod, paymentMethodType)->mergeAndFlattenToTuples(
             requiredFieldsBody,
           )
         intent(
@@ -44,12 +50,16 @@ let default = () => {
         postFailedSubmitResponse(~errortype="validation_error", ~message="Please enter all fields")
       }
     }
-  }, (isManualRetryEnabled, email, fullName))
-  useSubmitPaymentData(submitCallback)
+  }, (isManualRetryEnabled, email, fullName, sdkAuthorization, requiredFieldsBody))
+  PaymentMessageHooks.useSubmitPaymentData(submitCallback)
 
   <div className="flex flex-col animate-slowShow" style={gridGap: themeObj.spacingTab}>
-    <DynamicFields paymentMethod="bank_transfer" paymentMethodType="bacs" setRequiredFieldsBody />
-    <Surcharge paymentMethod="bank_transfer" paymentMethodType="bacs" />
+    <RenderIf condition={layoutClass.\"type" === Accordion}>
+      <Space height="0" />
+    </RenderIf>
+    <DynamicFields paymentMethod paymentMethodType setRequiredFieldsBody />
+    <Surcharge paymentMethod paymentMethodType />
     <InfoElement />
+    <Terms paymentMethodType paymentMethod />
   </div>
 }

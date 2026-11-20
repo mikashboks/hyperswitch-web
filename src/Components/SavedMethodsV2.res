@@ -1,31 +1,46 @@
-open RecoilAtoms
+open JotaiAtoms
 open Utils
 
 @react.component
-let make = () => {
-  let {iframeId, publishableKey, profileId} = Recoil.useRecoilValueFromAtom(keys)
-  let nickName = Recoil.useRecoilValueFromAtom(userCardNickName)
-  let fullName = Recoil.useRecoilValueFromAtom(userFullName)
-  let {config} = Recoil.useRecoilValueFromAtom(configAtom)
-  let logger = Recoil.useRecoilValueFromAtom(loggerAtom)
-  let customPodUri = Recoil.useRecoilValueFromAtom(customPodUri)
-  let (savedMethodsV2, setSavedMethodsV2) = Recoil.useRecoilState(RecoilAtomsV2.savedMethodsV2)
-  let (_, setManagePaymentMethod) = Recoil.useRecoilState(RecoilAtomsV2.managePaymentMethod)
+let make = (~cvcProps: CardUtils.cvcProps) => {
+  let (paymentTokenAtom, setPaymentTokenAtom) = Jotai.useAtom(JotaiAtoms.paymentTokenAtom)
+  let keys = Jotai.useAtomValue(keys)
+  let nickName = Jotai.useAtomValue(userCardNickName)
+  let fullName = Jotai.useAtomValue(userFullName)
+  let {localeString} = Jotai.useAtomValue(configAtom)
+  let logger = Jotai.useAtomValue(loggerAtom)
+  let customPodUri = Jotai.useAtomValue(customPodUri)
+  let (savedMethodsV2, setSavedMethodsV2) = Jotai.useAtom(JotaiAtomsV2.savedMethodsV2)
+  let setManagePaymentMethod = Jotai.useSetAtom(JotaiAtomsV2.managePaymentMethod)
+  let loggerState = Jotai.useAtomValue(JotaiAtoms.loggerAtom)
+  let updateCard = PaymentHelpersV2.useUpdateCard(Some(loggerState), Card)
+  let {iframeId, sdkAuthorization} = keys
+  let elementType = PaymentTypeContext.usePaymentType()->CardThemeType.getPaymentModeToString
+  let {isCVCValid, cvcNumber, setCvcError} = cvcProps
+  let complete = isCVCValid->Option.getOr(false) && paymentTokenAtom.paymentToken !== ""
+  let isEmpty = cvcNumber == ""
+
+  let setUserError = message => postFailedSubmitResponse(~errortype="validation_error", ~message)
 
   let updateSavedMethodV2 = (
     savedMethods: array<UnifiedPaymentsTypesV2.customerMethods>,
-    paymentMethodId,
-    updatedCustomerMethod: UnifiedPaymentsTypesV2.customerMethods,
+    paymentMethodToken,
+    updatedPaymentMethod: UnifiedPaymentsTypesV2.paymentMethodsUpdate,
   ) => {
     savedMethods->Array.map(savedMethod =>
-      savedMethod.id !== paymentMethodId ? savedMethod : updatedCustomerMethod
+      savedMethod.paymentToken === paymentMethodToken
+        ? {
+            ...savedMethod,
+            paymentMethodData: updatedPaymentMethod.paymentMethodData,
+          }
+        : savedMethod
     )
   }
 
   let removeSavedMethodV2 = (
     savedMethods: array<UnifiedPaymentsTypesV2.customerMethods>,
-    paymentMethodId,
-  ) => savedMethods->Array.filter(savedMethod => savedMethod.id !== paymentMethodId)
+    paymentMethodToken,
+  ) => savedMethods->Array.filter(savedMethod => savedMethod.paymentToken !== paymentMethodToken)
 
   let handleUpdate = async (paymentItem: UnifiedPaymentsTypesV2.customerMethods) => {
     messageParentWindow([
@@ -35,7 +50,7 @@ let make = () => {
     ])
 
     let bodyArr = PaymentManagementBody.updateCardBody(
-      ~paymentMethodId=paymentItem.id,
+      ~paymentMethodToken=paymentItem.paymentToken,
       ~nickName=nickName.value,
       ~cardHolderName=fullName.value,
     )
@@ -43,21 +58,25 @@ let make = () => {
     try {
       let res = await PaymentHelpersV2.updatePaymentMethod(
         ~bodyArr,
-        ~pmClientSecret=config.pmClientSecret,
-        ~publishableKey,
-        ~profileId,
-        ~pmSessionId=config.pmSessionId,
+        ~pmSessionId=keys.pmSessionId->Option.getOr(""),
         ~logger,
         ~customPodUri,
+        ~sdkAuthorization=sdkAuthorization->Option.getOr(""),
       )
 
       let dict = res->getDictFromJson
-      let paymentMethodId = dict->getString("id", "")
+      let paymentMethodDetails = dict->UnifiedHelpersV2.itemToPaymentMethodsUpdateMapper
+      let associatedPaymentMethods =
+        paymentMethodDetails.associatedPaymentMethods
+        ->Array.get(0)
+        ->Option.getOr(PaymentConfirmTypesV2.defaultAssociatedPaymentMethodObj)
+      let paymentMethodToken = associatedPaymentMethods.token.data
 
-      if paymentMethodId != "" {
+      if paymentMethodToken != "" {
         setManagePaymentMethod(_ => "")
-        let updatedCard = dict->UnifiedHelpersV2.itemToPaymentDetails
-        setSavedMethodsV2(prev => prev->updateSavedMethodV2(paymentMethodId, updatedCard))
+        setSavedMethodsV2(prev =>
+          prev->updateSavedMethodV2(paymentMethodToken, paymentMethodDetails)
+        )
       } else {
         Console.error2("Payment Id Empty ", res->JSON.stringify)
       }
@@ -78,20 +97,18 @@ let make = () => {
 
     try {
       let res = await PaymentHelpersV2.deletePaymentMethodV2(
-        ~publishableKey,
-        ~profileId,
-        ~pmClientSecret=config.pmClientSecret,
-        ~paymentMethodId=paymentItem.id,
-        ~pmSessionId=config.pmSessionId,
+        ~paymentMethodToken=paymentItem.paymentToken,
+        ~pmSessionId=keys.pmSessionId->Option.getOr(""),
         ~logger,
         ~customPodUri,
+        ~sdkAuthorization=sdkAuthorization->Option.getOr(""),
       )
 
       let dict = res->getDictFromJson
-      let paymentMethodId = dict->getString("id", "")
+      let paymentMethodToken = dict->getString("payment_method_token", "")
 
-      if paymentMethodId != "" {
-        setSavedMethodsV2(prev => prev->removeSavedMethodV2(paymentMethodId))
+      if paymentMethodToken != "" {
+        setSavedMethodsV2(prev => prev->removeSavedMethodV2(paymentMethodToken))
       } else {
         Console.error2("Payment Id Empty ", res->JSON.stringify)
       }
@@ -103,11 +120,85 @@ let make = () => {
     messageParentWindow([("fullscreen", false->JSON.Encode.bool)])
   }
 
+  React.useEffect(() => {
+    SubscriptionEventHooks.emitReady(~iframeId, ~elementType)
+    None
+  }, [])
+
+  React.useEffect(() => {
+    let defaultSelectedPaymentMethod = savedMethodsV2->Array.get(0)
+
+    let isSavedMethodsEmpty = savedMethodsV2->Array.length === 0
+
+    let tokenObj = switch (isSavedMethodsEmpty, defaultSelectedPaymentMethod) {
+    | (false, Some(defaultSelectedPaymentMethod)) => Some(defaultSelectedPaymentMethod)
+    | (false, None) =>
+      Some(savedMethodsV2->Array.get(0)->Option.getOr(UnifiedHelpersV2.defaultCustomerMethods))
+    | _ => None
+    }
+
+    switch tokenObj {
+    | Some(obj) =>
+      setPaymentTokenAtom(_ => {
+        paymentToken: obj.paymentToken,
+        customerId: obj.customerId,
+      })
+    | None => ()
+    }
+    None
+  }, [savedMethodsV2])
+
+  let customerMethod = React.useMemo(_ =>
+    savedMethodsV2
+    ->Array.find(savedMethod => savedMethod.paymentToken === paymentTokenAtom.paymentToken)
+    ->Option.getOr(UnifiedHelpersV2.defaultCustomerMethods)
+  , (paymentTokenAtom, savedMethodsV2))
+
+  let submitCallback = React.useCallback((ev: Window.event) => {
+    let json = ev.data->safeParse
+    let confirm = json->getDictFromJson->ConfirmType.itemToObjMapper
+
+    let isCardPaymentMethodValid = !customerMethod.requiresCvv || (complete && !isEmpty)
+    let savedPaymentMethodBody = PaymentManagementBody.updateCVVBody(
+      ~paymentMethodToken=paymentTokenAtom.paymentToken,
+      ~cvcNumber,
+    )
+
+    if confirm.doSubmit {
+      if isCardPaymentMethodValid && confirm.confirmTimestamp >= confirm.readyTimestamp {
+        updateCard(
+          ~bodyArr=savedPaymentMethodBody,
+          ~confirmParam=confirm.confirmParams,
+          ~handleUserError=true,
+        )
+      } else {
+        if confirm.confirmTimestamp < confirm.readyTimestamp {
+          setUserError(localeString.selectPaymentMethodText)
+        }
+        if cvcNumber === "" {
+          setCvcError(_ => localeString.cvcNumberEmptyText)
+          setUserError(localeString.enterFieldsText)
+        }
+        if !(isCVCValid->Option.getOr(false)) {
+          setUserError(localeString.enterValidDetailsText)
+        }
+      }
+    }
+  }, (areRequiredFieldsValid, isEmpty, complete, customerMethod, isManualRetryEnabled))
+  PaymentMessageHooks.useSubmitPaymentData(submitCallback)
+
   savedMethodsV2
-  ->Array.mapWithIndex((obj, i) => {
+  ->Array.map(obj => {
     let brandIcon = obj->CardUtilsV2.getPaymentMethodBrand
     <SavedMethodItemV2
-      key={i->Int.toString} paymentItem=obj brandIcon handleDeleteV2 handleUpdate
+      key={obj.paymentToken}
+      paymentItem=obj
+      brandIcon
+      handleDeleteV2
+      handleUpdate
+      setPaymentTokenAtom
+      isActive={paymentTokenAtom.paymentToken == obj.paymentToken}
+      cvcProps
     />
   })
   ->React.array

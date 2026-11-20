@@ -31,8 +31,10 @@ type paymentMethodEnabled = {
   cardNetworks?: array<cardNetwork>,
   paymentMethodType: string,
   paymentMethodSubtype: string,
+  bankNames?: array<string>,
   requiredFields: array<PaymentMethodsRecord.required_fields>,
   surchargeDetails: option<PaymentMethodsRecord.surchargeDetails>,
+  paymentExperience?: array<PaymentMethodsRecord.paymentFlow>,
 }
 
 type bank = {mask: string}
@@ -71,7 +73,7 @@ type networkTokenizationData = {
 type networkTokenization = {paymentMethodData: networkTokenizationData}
 
 type customerMethods = {
-  id: string,
+  paymentToken: string,
   customerId: string,
   paymentMethodType: string,
   paymentMethodSubType: string,
@@ -84,6 +86,11 @@ type customerMethods = {
   bank: bank,
   billing?: billing,
   networkTokenization?: networkTokenization,
+}
+
+type paymentMethodsUpdate = {
+  associatedPaymentMethods: PaymentConfirmTypesV2.associatedPaymentMethods,
+  paymentMethodData: card,
 }
 
 type paymentMethodsManagement = {

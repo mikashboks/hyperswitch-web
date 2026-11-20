@@ -2,6 +2,7 @@ open Utils
 
 @react.component
 let make = () => {
+  let isTrustedParent = PaymentMessageHooks.useFullscreenParentCheck()
   let logger = HyperLogger.make(~source=Elements(Payment))
   let isCompleteAuthorizeCalledRef = React.useRef(false)
   let timeoutRef = React.useRef(None)
@@ -10,16 +11,19 @@ let make = () => {
 
   let handleCompleteAuthorizeCall = (
     threeDsMethodComp,
-    paymentIntentId,
+    clientSecret,
     publishableKey,
     headers,
     returnUrl,
+    sdkAuthorization,
   ) => {
     isCompleteAuthorizeCalledRef.current = true
-    let body = [
-      ("client_secret", paymentIntentId->JSON.Encode.string),
-      ("threeds_method_comp_ind", threeDsMethodComp->JSON.Encode.string),
-    ]
+    let body = [("threeds_method_comp_ind", threeDsMethodComp->JSON.Encode.string)]
+
+    if sdkAuthorization === "" {
+      body->Array.push(("client_secret", clientSecret->JSON.Encode.string))
+    }
+
     completeAuthorize(
       ~bodyArr=body,
       ~confirmParam={
@@ -28,11 +32,19 @@ let make = () => {
       },
       ~headers,
       ~iframeId="redsys3ds",
-      ~clientSecret=Some(paymentIntentId),
+      ~clientSecret=Some(clientSecret),
+      ~sdkAuthorization,
     )
   }
 
-  eventsToSendToParent->UtilityHooks.useSendEventsToParent
+  let responseOrigins = React.useRef([])
+  let isTrustedChild = (ev: Window.event) =>
+    responseOrigins.current->Array.includes(ev.origin) &&
+      Window.querySelector("#threeDsAuthFrame")
+      ->Nullable.toOption
+      ->Option.map(iframe => ev.source === iframe->Window.contentWindow)
+      ->Option.getOr(false)
+  eventsToSendToParent->UtilityHooks.useSendEventsToParent(~isTrustedChild)
 
   React.useEffect0(() => {
     messageParentWindow([("iframeMountedCallback", true->JSON.Encode.bool)])
@@ -40,13 +52,15 @@ let make = () => {
       try {
         let json = ev.data->safeParse
         let dict = json->getDictFromJson
-        if dict->Dict.get("fullScreenIframeMounted")->Option.isSome {
+        if isTrustedParent(ev) && dict->Dict.get("fullScreenIframeMounted")->Option.isSome {
           let metadata = dict->getJsonObjectFromDict("metadata")
           let metaDataDict = metadata->JSON.Decode.object->Option.getOr(Dict.make())
-          let paymentIntentId = metaDataDict->getString("paymentIntentId", "")
+          let clientSecret = metaDataDict->getString("clientSecret", "")
           let publishableKey = metaDataDict->getString("publishableKey", "")
+          let sdkAuthorization = metaDataDict->getString("sdkAuthorization", "")
 
-          logger.setClientSecret(paymentIntentId)
+          logger.setClientSecret(clientSecret)
+          logger.setSdkAuthorization(sdkAuthorization)
           logger.setMerchantId(publishableKey)
 
           let headersDict = metaDataDict->getDictFromDict("headers")
@@ -59,6 +73,12 @@ let make = () => {
           let methodKey = iframeDataDict->getString("method_key", "threeDSMethodData")
           let threeDsMethodUrl = iframeDataDict->getString("three_ds_method_url", "")
           let threeDsMethodData = iframeDataDict->getString("three_ds_method_data", "")
+          responseOrigins.current =
+            [
+              threeDsMethodUrl,
+              ApiEndpoint.getApiEndPoint(~publishableKey),
+              GlobalVars.backendEndPoint,
+            ]->Array.filterMap(PaymentMessageSecurity.originOf)
           let threeDsIframe = CommonHooks.querySelector("#threeDsAuthFrame")
 
           switch Window.querySelector("#threeDsDiv")->Nullable.toOption {
@@ -80,10 +100,11 @@ let make = () => {
           timeoutRef.current = Some(setTimeout(() => {
               handleCompleteAuthorizeCall(
                 "N",
-                paymentIntentId,
+                clientSecret,
                 publishableKey,
                 headers,
                 returnUrl,
+                sdkAuthorization,
               )->ignore
             }, 10000))
 
@@ -94,10 +115,11 @@ let make = () => {
               if !isCompleteAuthorizeCalledRef.current {
                 handleCompleteAuthorizeCall(
                   "Y",
-                  paymentIntentId,
+                  clientSecret,
                   publishableKey,
                   headers,
                   returnUrl,
+                  sdkAuthorization,
                 )->ignore
               }
             })

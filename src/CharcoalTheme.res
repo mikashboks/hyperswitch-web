@@ -23,7 +23,7 @@ let charcoal = {
   fontSizeXs: "10px",
   fontSize2Xs: "8px",
   fontSize3Xs: "6px",
-  colorSuccess: "",
+  colorSuccess: "#16875B",
   colorWarning: "",
   colorPrimaryText: "#707070",
   colorBackgroundText: "#ffffff",
@@ -49,6 +49,7 @@ let charcoal = {
   buttonTextFontWeight: "500",
   buttonBorderWidth: "0px",
   disabledFieldColor: "#E1E5EA",
+  inputFieldHeight: "48px",
 }
 
 let charcoalRules = theme =>
@@ -133,6 +134,12 @@ let charcoalRules = theme =>
     ".TabIcon": {
       "transition": "color .1s ease",
     },
+    ".TabSelectionIcon": {
+      "bottom": "-6px",
+      "right": "-6px",
+      "border": `2px solid ${theme.colorBackground}`,
+      "borderRadius": "50%",
+    },
     ".Block": {
       "backgroundColor": theme.colorBackground,
       "borderRadius": theme.borderRadius,
@@ -169,6 +176,12 @@ let charcoalRules = theme =>
     },
     ".AccordionItemIcon--selected": {
       "color": theme.colorText,
+    },
+    ".AccordionItemSelectionIcon": {
+      "bottom": "-6px",
+      "right": "-6px",
+      "border": `2px solid ${theme.colorBackground}`,
+      "borderRadius": "50%",
     },
     ".PickerItem": {
       "backgroundColor": theme.colorBackground,

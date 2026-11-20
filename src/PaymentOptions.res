@@ -1,17 +1,19 @@
-open RecoilAtoms
+open JotaiAtoms
 module TabLoader = {
   @react.component
   let make = (~cardShimmerCount) => {
     open PaymentType
     open PaymentElementShimmer
+    open PaymentTypeContext
 
-    let paymentMethodList = Recoil.useRecoilValueFromAtom(paymentMethodList)
-    let paymentManagementList = Recoil.useRecoilValueFromAtom(RecoilAtomsV2.paymentManagementList)
-    let {themeObj} = Recoil.useRecoilValueFromAtom(configAtom)
+    let paymentMethodList = Jotai.useAtomValue(paymentMethodList)
+    let paymentManagementList = Jotai.useAtomValue(JotaiAtomsV2.paymentManagementList)
+    let {themeObj} = Jotai.useAtomValue(configAtom)
+    let contextPaymentType = usePaymentType()
 
-    switch (GlobalVars.sdkVersion, paymentMethodList, paymentManagementList) {
-    | (V1, SemiLoaded, _)
-    | (V2, _, SemiLoadedV2) =>
+    switch (contextPaymentType, paymentMethodList, paymentManagementList) {
+    | (PaymentMethodsManagement, _, SemiLoadedV2)
+    | (_, SemiLoaded, _) =>
       Array.make(~length=cardShimmerCount - 1, "")
       ->Array.mapWithIndex((_, i) => {
         <div
@@ -52,16 +54,19 @@ let make = (
   ~checkoutEle: React.element,
   ~cardShimmerCount: int,
   ~cardProps: CardUtils.cardProps,
+  ~expiryProps: CardUtils.expiryProps,
+  ~cvcProps: CardUtils.cvcProps,
 ) => {
-  let {themeObj, localeString} = Recoil.useRecoilValueFromAtom(configAtom)
-  let {readOnly, customMethodNames} = Recoil.useRecoilValueFromAtom(optionAtom)
+  let {themeObj, localeString} = Jotai.useAtomValue(configAtom)
+  let {readOnly, customMethodNames, layout} = Jotai.useAtomValue(optionAtom)
+  let layoutClass = CardUtils.getLayoutClass(layout)
   let payOptionsRef = React.useRef(Nullable.null)
   let selectRef = React.useRef(Nullable.null)
   let (winW, winH) = Utils.useWindowSize()
-  let (selectedOption, setSelectedOption) = Recoil.useRecoilState(selectedOptionAtom)
+  let (selectedOption, setSelectedOption) = Jotai.useAtom(selectedOptionAtom)
   let (moreIconIndex, setMoreIconIndex) = React.useState(_ => 0)
   let (toggleIconElement, setToggleIconElement) = React.useState(_ => false)
-  let paymentMethodListValue = Recoil.useRecoilValueFromAtom(PaymentUtils.paymentMethodListValue)
+  let paymentMethodListValue = Jotai.useAtomValue(PaymentUtils.paymentMethodListValue)
   React.useEffect(() => {
     let width = switch payOptionsRef.current->Nullable.toOption {
     | Some(ref) => ref->Window.Element.clientWidth
@@ -78,15 +83,18 @@ let make = (
     CardUtils.blurRef(selectRef)
   }
 
-  let cardOptionDetails = cardOptions->PaymentMethodsRecord.getPaymentDetails
+  let cardOptionDetails = cardOptions->PaymentMethodsRecord.getPaymentDetails(~localeString)
 
-  let dropDownOptionsDetails = dropDownOptions->PaymentMethodsRecord.getPaymentDetails
+  let dropDownOptionsDetails =
+    dropDownOptions->PaymentMethodsRecord.getPaymentDetails(~localeString)
+
+  let allOptions = cardOptionDetails->Array.concat(dropDownOptionsDetails)
+
   let selectedPaymentOption =
-    PaymentMethodsRecord.paymentMethodsFields
+    allOptions
     ->Array.find(item => item.paymentMethodName == selectedOption)
-    ->Option.getOr(PaymentMethodsRecord.defaultPaymentMethodFields)
+    ->Option.getOr(PaymentMethodsRecord.defaultPaymentFieldsInfo)
 
-  let {cardBrand} = cardProps
   React.useEffect(() => {
     let intervalId = setInterval(() => {
       if dropDownOptionsDetails->Array.length > 1 {
@@ -111,25 +119,51 @@ let make = (
   PaymentUtils.useEmitPaymentMethodInfo(
     ~paymentMethodName=selectedPaymentOption.paymentMethodName,
     ~paymentMethods=paymentMethodListValue.payment_methods,
-    ~cardBrand,
+    ~cardProps,
+    ~expiryProps,
+    ~cvcProps,
+    ~skipCard=true,
   )
+  SubscriptionEventHooks.useEmitPaymentMethodStatus(
+    ~paymentMethodName=selectedPaymentOption.paymentMethodName,
+    ~paymentMethods=paymentMethodListValue.payment_methods,
+    ~isSavedPaymentMethod=false,
+    ~isOneClickWallet=false,
+  )
+  SubscriptionEventHooks.useEmitBillingAddress()
 
   let displayIcon = ele => {
     <span className={`scale-90 animate-slowShow ${toggleIconElement ? "hidden" : ""}`}> ele </span>
   }
 
+  let className = switch layoutClass.paymentMethodsArrangementForTabs {
+  | Grid => "TabHeader grid gap-4 overflow-y-auto"
+  | _ => "TabHeader flex flex-row overflow-auto no-scrollbar"
+  }
+
+  let baseStyles: JsxDOM.style = {
+    columnGap: themeObj.spacingTab,
+    marginBottom: themeObj.spacingGridColumn,
+    paddingBottom: "7px",
+    padding: "4px",
+    height: "auto",
+  }
+
+  let style = switch layoutClass.paymentMethodsArrangementForTabs {
+  | Grid => {
+      ...baseStyles,
+      gridTemplateColumns: `repeat(${Int.toString(cardShimmerCount)}, minmax(0, 1fr))`,
+      gridAutoRows: "1fr",
+    }
+  | _ => baseStyles
+  }
+
   <div className="w-full">
     <div
       ref={payOptionsRef->ReactDOM.Ref.domRef}
-      className="TabHeader flex flex-row overflow-auto no-scrollbar"
+      className
       dataTestId={TestUtils.paymentMethodListTestId}
-      style={
-        columnGap: themeObj.spacingTab,
-        marginBottom: themeObj.spacingGridColumn,
-        paddingBottom: "7px",
-        padding: "4px",
-        height: "auto",
-      }>
+      style>
       {cardOptionDetails
       ->Array.mapWithIndex((payOption, i) => {
         let isActive = payOption.paymentMethodName == selectedOption
@@ -172,19 +206,15 @@ let make = (
               color: "transparent",
             }>
             <option value=selectedPaymentOption.paymentMethodName disabled={true}>
-              {React.string(
-                selectedPaymentOption.displayName === "Card"
-                  ? localeString.card
-                  : {
-                      let (name, _) = PaymentUtils.getDisplayNameAndIcon(
-                        customMethodNames,
-                        selectedPaymentOption.paymentMethodName,
-                        selectedPaymentOption.displayName,
-                        selectedPaymentOption.icon,
-                      )
-                      name
-                    },
-              )}
+              {
+                let (name, _) = PaymentUtils.getDisplayNameAndIcon(
+                  customMethodNames,
+                  selectedPaymentOption.paymentMethodName,
+                  selectedPaymentOption.displayName,
+                  selectedPaymentOption.icon,
+                )
+                React.string(name)
+              }
             </option>
             {dropDownOptionsDetails
             ->Array.mapWithIndex((item, i) => {
@@ -192,19 +222,15 @@ let make = (
                 key={Int.toString(i)}
                 value=item.paymentMethodName
                 style={color: themeObj.colorPrimary}>
-                {React.string(
-                  item.displayName === "card"
-                    ? localeString.card
-                    : {
-                        let (name, _) = PaymentUtils.getDisplayNameAndIcon(
-                          customMethodNames,
-                          item.paymentMethodName,
-                          item.displayName,
-                          item.icon,
-                        )
-                        name
-                      },
-                )}
+                {
+                  let (name, _) = PaymentUtils.getDisplayNameAndIcon(
+                    customMethodNames,
+                    item.paymentMethodName,
+                    item.displayName,
+                    item.icon,
+                  )
+                  React.string(name)
+                }
               </option>
             })
             ->React.array}

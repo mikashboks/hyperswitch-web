@@ -4,6 +4,12 @@ type optionType = {
   displayValue?: string,
 }
 
+let updateArrayOfStringToOptionsTypeArrayWithUpperCaseLabel = arrayOfString =>
+  arrayOfString->Array.map(item => {
+    value: item,
+    label: item->String.toUpperCase,
+  })
+
 let updateArrayOfStringToOptionsTypeArray = arrayOfString =>
   arrayOfString->Array.map(item => {
     value: item,
@@ -13,7 +19,7 @@ let defaultValue = {
   value: "",
 }
 
-open RecoilAtoms
+open JotaiAtoms
 @react.component
 let make = (
   ~appearance: CardThemeType.appearance,
@@ -23,26 +29,34 @@ let make = (
   ~displayValue=?,
   ~setDisplayValue=?,
   ~fieldName,
+  ~isLabelHidden=false,
   ~options: array<optionType>,
   ~disabled=false,
   ~className="",
   ~width="w-full",
 ) => {
-  let {themeObj, localeString, config} = Recoil.useRecoilValueFromAtom(configAtom)
-  let {readOnly} = Recoil.useRecoilValueFromAtom(optionAtom)
+  let {themeObj, localeString, config} = Jotai.useAtomValue(configAtom)
+  let {readOnly} = Jotai.useAtomValue(optionAtom)
+  let loggerState = Jotai.useAtomValue(loggerAtom)
   let dropdownRef = React.useRef(Nullable.null)
   let (inputFocused, setInputFocused) = React.useState(_ => false)
-  let {parentURL} = Recoil.useRecoilValueFromAtom(keys)
+  let {parentURL, iframeId} = Jotai.useAtomValue(keys)
   let isSpacedInnerLayout = config.appearance.innerLayout === Spaced
+  let elementType = PaymentTypeContext.usePaymentType()->CardThemeType.getPaymentModeToString
 
   let handleFocus = _ => {
     setInputFocused(_ => true)
-    Utils.handleOnFocusPostMessage(~targetOrigin=parentURL)
+    Utils.handleOnFocusPostMessage(~iframeId, ~elementType, ~targetOrigin=parentURL)
   }
 
   let handleChange = ev => {
     let target = ev->ReactEvent.Form.target
     let value = target["value"]
+
+    // Log the dropdown change using fieldName
+    if fieldName->String.length > 0 {
+      LoggerUtils.logInputChangeInfo(fieldName, loggerState)
+    }
     setValue(_ => value)
     if isDisplayValueVisible {
       let findDisplayValue =
@@ -86,7 +100,8 @@ let make = (
   <RenderIf condition={options->Array.length > 0}>
     <div className={`flex flex-col ${width}`}>
       <RenderIf
-        condition={fieldName->String.length > 0 &&
+        condition={!isLabelHidden &&
+        fieldName->String.length > 0 &&
         appearance.labels == Above &&
         isSpacedInnerLayout}>
         <div
@@ -139,9 +154,9 @@ let make = (
           })
           ->React.array}
         </select>
-        <RenderIf condition={config.appearance.labels == Floating}>
+        <RenderIf condition={!isLabelHidden && config.appearance.labels == Floating}>
           <div
-            className={`Label ${floatinglabelClass} absolute bottom-0 ml-3 ${focusClass}`}
+            className={`Label ${floatinglabelClass} absolute bottom-0 ml-3 ${focusClass} pointer-events-none`}
             style={
               marginBottom: {
                 inputFocused || value->String.length > 0 ? "" : themeObj.spacingUnit

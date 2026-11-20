@@ -41,11 +41,10 @@ let cardPaymentBody = (
   ~nickname="",
 ) => {
   let cardBody = [
-    ("card_number", cardNumber->CardUtils.clearSpaces->JSON.Encode.string),
+    ("card_number", cardNumber->CardValidations.clearSpaces->JSON.Encode.string),
     ("card_exp_month", month->JSON.Encode.string),
     ("card_exp_year", year->JSON.Encode.string),
     ("card_cvc", cvcNumber->JSON.Encode.string),
-    ("card_issuer", ""->JSON.Encode.string),
   ]
 
   cardHolderName
@@ -66,6 +65,32 @@ let cardPaymentBody = (
     ),
   ]
 }
+
+let offerDetailsBody = (~offerQuoteIds) =>
+  offerQuoteIds->Array.length === 0
+    ? []
+    : [
+        (
+          "offer_details",
+          [
+            ("offer_quote_ids", offerQuoteIds->Array.map(JSON.Encode.string)->JSON.Encode.array),
+          ]->Utils.getJsonFromArrayOfJson,
+        ),
+      ]
+
+let installmentBody = (plan: option<PaymentMethodsRecord.installmentPlan>) =>
+  switch plan {
+  | Some(plan) => [
+      (
+        "installment_data",
+        [
+          ("number_of_installments", plan.number_of_installments->JSON.Encode.int),
+          ("billing_frequency", plan.billing_frequency->JSON.Encode.string),
+        ]->Utils.getJsonFromArrayOfJson,
+      ),
+    ]
+  | None => []
+  }
 
 let bancontactBody = () => {
   let bancontactField =
@@ -112,6 +137,13 @@ let customerAcceptanceBody =
     ),
   ]->Utils.getJsonFromArrayOfJson
 
+let cardTokenCvcTuple = (~cvcNumber) => (
+  "payment_method_data",
+  [
+    ("card_token", [("card_cvc", cvcNumber->JSON.Encode.string)]->Utils.getJsonFromArrayOfJson),
+  ]->Utils.getJsonFromArrayOfJson,
+)
+
 let savedCardBody = (
   ~paymentToken,
   ~customerId,
@@ -126,14 +158,77 @@ let savedCardBody = (
   ]
 
   if requiresCvv {
-    savedCardBody->Array.push(("card_cvc", cvcNumber->JSON.Encode.string))->ignore
+    savedCardBody->Array.push(cardTokenCvcTuple(~cvcNumber))
   }
 
   if isCustomerAcceptanceRequired {
-    savedCardBody->Array.push(("customer_acceptance", customerAcceptanceBody))->ignore
+    savedCardBody->Array.push(("customer_acceptance", customerAcceptanceBody))
   }
 
   savedCardBody
+}
+
+// Saved-card confirm body for the third-party-vault (e.g. VGS) return-user flow.
+// Identical to `savedCardBody` except the plain `card_cvc` is replaced by the
+// VGS-tokenised CVC alias nested under `payment_method_data.vault_card_token_data`.
+// The CVC iframe only renders for cards that require CVV, so the token is always
+// present here.
+let savedCardVaultCvcBody = (
+  ~paymentToken,
+  ~customerId,
+  ~cvcToken,
+  ~isCustomerAcceptanceRequired,
+) => {
+  let body = [
+    ("payment_method", "card"->JSON.Encode.string),
+    ("payment_token", paymentToken->JSON.Encode.string),
+    ("customer_id", customerId->JSON.Encode.string),
+    (
+      "payment_method_data",
+      [
+        (
+          "card_token",
+          [("card_cvc_token", cvcToken->JSON.Encode.string)]->Utils.getJsonFromArrayOfJson,
+        ),
+      ]->Utils.getJsonFromArrayOfJson,
+    ),
+  ]
+
+  if isCustomerAcceptanceRequired {
+    body->Array.push(("customer_acceptance", customerAcceptanceBody))->ignore
+  }
+
+  body
+}
+
+// Non-PCI (isPciCompliant=false) counterpart of savedCardVaultCvcBody: the CVC is
+// tokenised by Hyperswitch's hosted vault, so it is sent as vault_card_token / card_cvc.
+let externalSavedCardVaultCvcBody = (
+  ~paymentToken,
+  ~customerId,
+  ~cvcToken,
+  ~isCustomerAcceptanceRequired,
+) => {
+  let body = [
+    ("payment_method", "card"->JSON.Encode.string),
+    ("payment_token", paymentToken->JSON.Encode.string),
+    ("customer_id", customerId->JSON.Encode.string),
+    (
+      "payment_method_data",
+      [
+        (
+          "vault_card_token",
+          [("card_cvc", cvcToken->JSON.Encode.string)]->Utils.getJsonFromArrayOfJson,
+        ),
+      ]->Utils.getJsonFromArrayOfJson,
+    ),
+  ]
+
+  if isCustomerAcceptanceRequired {
+    body->Array.push(("customer_acceptance", customerAcceptanceBody))->ignore
+  }
+
+  body
 }
 
 let mastercardClickToPayBody = (~merchantTransactionId, ~correlationId, ~xSrcFlowId) => {
@@ -164,6 +259,22 @@ let visaClickToPayBody = (~encryptedPayload, ~email) => {
     ("payment_method_type", "debit"->JSON.Encode.string),
     ("email", email->JSON.Encode.string),
   ]
+}
+
+let visaClickToPayAuthenticationBody = (~encryptedPayload) => {
+  let paymentMethodData =
+    [
+      ("encrypted_payload", encryptedPayload->JSON.Encode.string),
+      ("provider", "visa"->JSON.Encode.string),
+    ]->Utils.getJsonFromArrayOfJson
+
+  let paymentMethodDetails =
+    [
+      ("payment_method_type", "ctp"->JSON.Encode.string),
+      ("payment_method_data", paymentMethodData),
+    ]->Utils.getJsonFromArrayOfJson
+
+  [("payment_method_details", paymentMethodDetails)]
 }
 
 let savedPaymentMethodBody = (
@@ -349,31 +460,6 @@ let becsBankDebitBody = (
     ),
   ])
 
-let klarnaRedirectionBody = (~fullName, ~email, ~country, ~connectors) => [
-  ("payment_method", "pay_later"->JSON.Encode.string),
-  ("payment_method_type", "klarna"->JSON.Encode.string),
-  ("payment_experience", "redirect_to_url"->JSON.Encode.string),
-  ("connector", connectors->Utils.getArrofJsonString->JSON.Encode.array),
-  ("name", fullName->JSON.Encode.string),
-  (
-    "payment_method_data",
-    [
-      (
-        "pay_later",
-        [
-          (
-            "klarna_redirect",
-            [
-              ("billing_email", email->JSON.Encode.string),
-              ("billing_country", country->JSON.Encode.string),
-            ]->Utils.getJsonFromArrayOfJson,
-          ),
-        ]->Utils.getJsonFromArrayOfJson,
-      ),
-    ]->Utils.getJsonFromArrayOfJson,
-  ),
-]
-
 let klarnaSDKbody = (~token, ~connectors) => [
   ("payment_method", "pay_later"->JSON.Encode.string),
   ("payment_method_type", "klarna"->JSON.Encode.string),
@@ -406,22 +492,6 @@ let klarnaCheckoutBody = (~connectors) => {
   ]
 }
 
-let paypalRedirectionBody = (~connectors) => [
-  ("payment_method", "wallet"->JSON.Encode.string),
-  ("payment_method_type", "paypal"->JSON.Encode.string),
-  ("payment_experience", "redirect_to_url"->JSON.Encode.string),
-  ("connector", connectors->Utils.getArrofJsonString->JSON.Encode.array),
-  (
-    "payment_method_data",
-    [
-      (
-        "wallet",
-        [("paypal_redirect", []->Utils.getJsonFromArrayOfJson)]->Utils.getJsonFromArrayOfJson,
-      ),
-    ]->Utils.getJsonFromArrayOfJson,
-  ),
-]
-
 let paypalSdkBody = (~token, ~connectors) => [
   ("payment_method", "wallet"->JSON.Encode.string),
   ("payment_method_type", "paypal"->JSON.Encode.string),
@@ -453,40 +523,34 @@ let samsungPayBody = (~metadata) => {
 }
 
 let gpayBody = (~payObj: GooglePayType.paymentData, ~connectors: array<string>) => {
-  let gPayBody = [
-    ("payment_method", "wallet"->JSON.Encode.string),
-    ("payment_method_type", "google_pay"->JSON.Encode.string),
-    (
-      "payment_method_data",
-      [
-        (
-          "wallet",
-          [
-            (
-              "google_pay",
-              [
-                ("type", payObj.paymentMethodData.\"type"->JSON.Encode.string),
-                ("description", payObj.paymentMethodData.description->JSON.Encode.string),
-                ("info", payObj.paymentMethodData.info->Utils.transformKeys(Utils.SnakeCase)),
-                (
-                  "tokenization_data",
-                  payObj.paymentMethodData.tokenizationData->Utils.transformKeys(Utils.SnakeCase),
-                ),
-              ]->Utils.getJsonFromArrayOfJson,
-            ),
-          ]->Utils.getJsonFromArrayOfJson,
-        ),
-      ]->Utils.getJsonFromArrayOfJson,
-    ),
-  ]
+  open Utils
+  let (paymentMethodTypeKey, paymentMethodSubtypeKey) = ("payment_method", "payment_method_type")
 
-  if connectors->Array.length > 0 {
-    gPayBody
-    ->Array.push(("connector", connectors->Utils.getArrofJsonString->JSON.Encode.array))
-    ->ignore
+  let paymentMethodData = {
+    let paymentMethodData = payObj.paymentMethodData
+
+    [
+      ("type", paymentMethodData.\"type"->JSON.Encode.string),
+      ("description", paymentMethodData.description->JSON.Encode.string),
+      ("info", paymentMethodData.info->transformKeys(SnakeCase)),
+      ("tokenization_data", paymentMethodData.tokenizationData->transformKeys(SnakeCase)),
+    ]->getJsonFromArrayOfJson
   }
 
-  gPayBody
+  let walletData = [("google_pay", paymentMethodData)]->getJsonFromArrayOfJson
+
+  let paymentMethodDataJson = [("wallet", walletData)]->getJsonFromArrayOfJson
+
+  let baseBody = [
+    (paymentMethodTypeKey, "wallet"->JSON.Encode.string),
+    (paymentMethodSubtypeKey, "google_pay"->JSON.Encode.string),
+    ("payment_method_data", paymentMethodDataJson),
+  ]
+
+  switch connectors->Array.length > 0 {
+  | true => [...baseBody, ("connector", connectors->getArrofJsonString->JSON.Encode.array)]
+  | false => baseBody
+  }
 }
 
 let gpayRedirectBody = (~connectors: array<string>) => [
@@ -575,22 +639,24 @@ let applePayRedirectBody = (~connectors) => [
   ),
 ]
 
-let applePayThirdPartySdkBody = (~connectors) => [
-  ("connector", connectors->Utils.getArrofJsonString->JSON.Encode.array),
-  ("payment_method", "wallet"->JSON.Encode.string),
-  ("payment_method_type", "apple_pay"->JSON.Encode.string),
-  (
-    "payment_method_data",
-    [
-      (
-        "wallet",
-        [
-          ("apple_pay_third_party_sdk", Dict.make()->JSON.Encode.object),
-        ]->Utils.getJsonFromArrayOfJson,
-      ),
-    ]->Utils.getJsonFromArrayOfJson,
-  ),
-]
+let applePayThirdPartySdkBody = (~connectors, ~token=?) => {
+  let tokenJson = switch token {
+  | Some(val) => [("token", val->JSON.Encode.string)]->Utils.getJsonFromArrayOfJson
+  | None => Dict.make()->JSON.Encode.object
+  }
+
+  [
+    ("connector", connectors->Utils.getArrofJsonString->JSON.Encode.array),
+    ("payment_method", "wallet"->JSON.Encode.string),
+    ("payment_method_type", "apple_pay"->JSON.Encode.string),
+    (
+      "payment_method_data",
+      [
+        ("wallet", [("apple_pay_third_party_sdk", tokenJson)]->Utils.getJsonFromArrayOfJson),
+      ]->Utils.getJsonFromArrayOfJson,
+    ),
+  ]
+}
 
 let cryptoBody = () => [
   ("payment_method", "crypto"->JSON.Encode.string),
@@ -673,7 +739,7 @@ let sofortBody = (~country, ~name, ~email) => [
   ),
 ]
 
-let iDealBody = (~name, ~bankName) => [
+let iDealBody = () => [
   ("payment_method", "bank_redirect"->JSON.Encode.string),
   ("payment_method_type", "ideal"->JSON.Encode.string),
   (
@@ -681,44 +747,19 @@ let iDealBody = (~name, ~bankName) => [
     [
       (
         "bank_redirect",
-        [
-          (
-            "ideal",
-            [
-              (
-                "billing_details",
-                [("billing_name", name->JSON.Encode.string)]->Utils.getJsonFromArrayOfJson,
-              ),
-              ("bank_name", (bankName == "" ? "american_express" : bankName)->JSON.Encode.string),
-            ]->Utils.getJsonFromArrayOfJson,
-          ),
-        ]->Utils.getJsonFromArrayOfJson,
+        [("ideal", []->Utils.getJsonFromArrayOfJson)]->Utils.getJsonFromArrayOfJson,
       ),
     ]->Utils.getJsonFromArrayOfJson,
   ),
 ]
 
-let epsBody = (~name, ~bankName) => [
+let epsBody = () => [
   ("payment_method", "bank_redirect"->JSON.Encode.string),
   ("payment_method_type", "eps"->JSON.Encode.string),
   (
     "payment_method_data",
     [
-      (
-        "bank_redirect",
-        [
-          (
-            "eps",
-            [
-              (
-                "billing_details",
-                [("billing_name", name->JSON.Encode.string)]->Utils.getJsonFromArrayOfJson,
-              ),
-              ("bank_name", (bankName === "" ? "american_express" : bankName)->JSON.Encode.string),
-            ]->Utils.getJsonFromArrayOfJson,
-          ),
-        ]->Utils.getJsonFromArrayOfJson,
-      ),
+      ("bank_redirect", [("eps", []->Utils.getJsonFromArrayOfJson)]->Utils.getJsonFromArrayOfJson),
     ]->Utils.getJsonFromArrayOfJson,
   ),
 ]
@@ -749,44 +790,6 @@ let p24Body = (~email) => [
       (
         "bank_redirect",
         [("przelewy24", Dict.make()->JSON.Encode.object)]->Utils.getJsonFromArrayOfJson,
-      ),
-    ]->Utils.getJsonFromArrayOfJson,
-  ),
-]
-
-let interacBody = (~email, ~country) => [
-  ("payment_method", "bank_redirect"->JSON.Encode.string),
-  ("payment_method_type", "interac"->JSON.Encode.string),
-  (
-    "payment_method_data",
-    [
-      (
-        "bank_redirect",
-        [
-          (
-            "interac",
-            [
-              ("email", email->JSON.Encode.string),
-              ("country", country->JSON.Encode.string),
-            ]->Utils.getJsonFromArrayOfJson,
-          ),
-        ]->Utils.getJsonFromArrayOfJson,
-      ),
-    ]->Utils.getJsonFromArrayOfJson,
-  ),
-]
-
-let trustlyBody = (~country) => [
-  ("payment_method", "bank_redirect"->JSON.Encode.string),
-  ("payment_method_type", "trustly"->JSON.Encode.string),
-  (
-    "payment_method_data",
-    [
-      (
-        "bank_redirect",
-        [
-          ("trustly", [("country", country->JSON.Encode.string)]->Utils.getJsonFromArrayOfJson),
-        ]->Utils.getJsonFromArrayOfJson,
       ),
     ]->Utils.getJsonFromArrayOfJson,
   ),
@@ -874,23 +877,9 @@ let rewardBody = (~paymentMethodType) => [
   ("payment_method_data", "reward"->JSON.Encode.string),
 ]
 
-let fpxOBBody = (~bank) => [
+let fpxOBBody = () => [
   ("payment_method", "bank_redirect"->JSON.Encode.string),
   ("payment_method_type", "online_banking_fpx"->JSON.Encode.string),
-  (
-    "payment_method_data",
-    [
-      (
-        "bank_redirect",
-        [
-          (
-            "online_banking_fpx",
-            [("issuer", bank->JSON.Encode.string)]->Utils.getJsonFromArrayOfJson,
-          ),
-        ]->Utils.getJsonFromArrayOfJson,
-      ),
-    ]->Utils.getJsonFromArrayOfJson,
-  ),
 ]
 let thailandOBBody = (~bank) => [
   ("payment_method", "bank_redirect"->JSON.Encode.string),
@@ -952,6 +941,73 @@ let eftBody = () => {
   ]
 }
 
+// Vault card body used when card fields are tokenised via the Cards SDK iframe.
+// Each card field is replaced by the same vault token; last4Digits and binNumber
+// are decoded from the vault API response.
+let vaultCardBody = (~token) => {
+  [
+    ("payment_method", "card"->JSON.Encode.string),
+    ("payment_method_type", "debit"->JSON.Encode.string),
+    ("payment_token", token->JSON.Encode.string),
+  ]
+}
+let vaultExternalCardBody = (~token, ~last4Digits, ~binNumber, ~expiryMonth, ~expiryYear) => {
+  let vaultDataCard =
+    [
+      ("card_cvc", token->JSON.Encode.string),
+      ("card_number", token->JSON.Encode.string),
+      ("card_exp_month", expiryMonth->JSON.Encode.string),
+      ("card_exp_year", expiryYear->JSON.Encode.string),
+      ("last_four", last4Digits->JSON.Encode.string),
+      ("bin_number", binNumber->JSON.Encode.string),
+    ]->Utils.getJsonFromArrayOfJson
+
+  [
+    ("payment_method", "card"->JSON.Encode.string),
+    ("payment_method_type", "debit"->JSON.Encode.string),
+    ("payment_method_data", [("vault_card", vaultDataCard)]->Utils.getJsonFromArrayOfJson),
+  ]
+}
+
+// VGS vault confirm body. Unlike the Hyperswitch vault (single token reused for
+// every field), VGS returns a distinct alias per field, so card_number / exp /
+// cvc are sent separately. last4Digits / binNumber are derived from the (format-
+// preserving) card_number alias by the caller. Mirrors vaultCardBody's shape.
+let vgsVaultCardBody = (~cardNumber, ~month, ~year, ~cvcNumber, ~last4Digits, ~binNumber) => {
+  let vaultDataCard =
+    [
+      ("card_number", cardNumber->JSON.Encode.string),
+      ("card_exp_month", month->JSON.Encode.string),
+      ("card_exp_year", year->JSON.Encode.string),
+      ("card_cvc", cvcNumber->JSON.Encode.string),
+      ("last_four", last4Digits->JSON.Encode.string),
+      ("bin_number", binNumber->JSON.Encode.string),
+    ]->Utils.getJsonFromArrayOfJson
+
+  [
+    ("payment_method", "card"->JSON.Encode.string),
+    ("payment_method_type", "debit"->JSON.Encode.string),
+    ("payment_method_data", [("vault_card", vaultDataCard)]->Utils.getJsonFromArrayOfJson),
+  ]
+}
+
+let cardTokenizationBody = (~cardNumber, ~month, ~year, ~cvcNumber) => {
+  let cardBody = [
+    ("card_number", cardNumber->CardValidations.clearSpaces->JSON.Encode.string),
+    ("card_exp_month", month->JSON.Encode.string),
+    ("card_exp_year", year->JSON.Encode.string),
+    ("card_cvc", cvcNumber->JSON.Encode.string),
+  ]
+
+  [
+    ("payment_method_type", "card"->JSON.Encode.string),
+    (
+      "payment_method_data",
+      [("card", cardBody->Utils.getJsonFromArrayOfJson)]->Utils.getJsonFromArrayOfJson,
+    ),
+  ]
+}
+
 let getPaymentMethodType = (paymentMethod, paymentMethodType) =>
   switch paymentMethod {
   | "bank_debit" => paymentMethodType->String.replace("_debit", "")
@@ -981,6 +1037,11 @@ let appendRedirectPaymentMethods = [
   "ali_pay",
   "ali_pay_hk",
   "revolut_pay",
+  "klarna",
+  "paypal",
+  "breadpay",
+  "flexiti",
+  "bluecode",
 ]
 
 let appendBankeDebitMethods = ["sepa"]
@@ -1010,7 +1071,7 @@ let appendPaymentMethodExperience = (~paymentMethod, ~paymentMethodType, ~isQrPa
   | None => paymentMethodType
   }
 
-let paymentExperiencePaymentMethods = ["affirm"]
+let paymentExperiencePaymentMethods = ["affirm", "paypal", "klarna"]
 
 let appendPaymentExperience = (paymentBodyArr, paymentMethodType) =>
   if paymentExperiencePaymentMethods->Array.includes(paymentMethodType) {
@@ -1056,8 +1117,8 @@ let getPaymentBody = (
   | "afterpay_clearpay" => afterpayRedirectionBody()
   | "crypto_currency" => cryptoBody()
   | "sofort" => sofortBody(~country, ~name=fullName, ~email)
-  | "ideal" => iDealBody(~name=fullName, ~bankName=bank)
-  | "eps" => epsBody(~name=fullName, ~bankName=bank)
+  | "ideal" => iDealBody()
+  | "eps" => epsBody()
   | "blik" => blikBody(~blikCode)
   | "ali_pay"
   | "ali_pay_hk" =>
@@ -1082,14 +1143,12 @@ let getPaymentBody = (
       dynamicPaymentBody(paymentMethod, paymentMethodType)
     }
   | "giropay" => giroPayBody(~name=fullName)
-  | "trustly" => trustlyBody(~country)
   | "online_banking_poland" => polandOB(~bank)
   | "online_banking_czech_republic" => czechOB(~bank)
   | "online_banking_slovakia" => slovakiaOB(~bank)
   | "mb_way" => mbWayBody(~phoneNumber)
-  | "interac" => interacBody(~email, ~country)
   | "przelewy24" => p24Body(~email)
-  | "online_banking_fpx" => fpxOBBody(~bank)
+  | "online_banking_fpx" => fpxOBBody()
   | "online_banking_thailand" => thailandOBBody(~bank)
   | "revolut_pay" => revolutPayBody()
   | "classic"
@@ -1098,3 +1157,19 @@ let getPaymentBody = (
   | "eft" => eftBody()
   | _ => dynamicPaymentBody(paymentMethod, paymentMethodType)
   }
+
+let paymentMethodEligibilityBody = (~paymentMethodType, ~paymentMethodData) => {
+  [
+    ("payment_method_type", paymentMethodType->JSON.Encode.string),
+    ("payment_method_data", paymentMethodData),
+  ]
+}
+
+let cardPaymentMethodEligibilityBody = (~cardNumber) => {
+  let cardPaymentMethodData =
+    [
+      ("card", [("card_number", cardNumber->JSON.Encode.string)]->Utils.getJsonFromArrayOfJson),
+    ]->Utils.getJsonFromArrayOfJson
+
+  paymentMethodEligibilityBody(~paymentMethodType="card", ~paymentMethodData=cardPaymentMethodData)
+}

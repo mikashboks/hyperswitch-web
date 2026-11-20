@@ -1,5 +1,36 @@
 type locale =
-  EN | HE | FR | EN_GB | AR | JA | DE | FR_BE | ES | CA | PT | IT | PL | NL | SV | RU | ZH | ZH_HANT
+  | EN
+  | HE
+  | FR
+  | EN_GB
+  | AR
+  | JA
+  | DE
+  | FR_BE
+  | FR_CA
+  | ES
+  | CA
+  | PT
+  | IT
+  | PL
+  | NL
+  | SV
+  | RU
+  | ZH
+  | ZH_HANT
+  | DA
+  | LT
+  | CS
+  | SK
+  | IS
+  | CY
+  | EL
+  | ET
+  | FI
+  | NB
+  | BS
+  | MS
+  | TR_CY
 
 type localeStrings = {
   locale: string,
@@ -17,9 +48,12 @@ type localeStrings = {
   cvcTextLabel: string,
   emailLabel: string,
   ibanEmptyText: string,
+  ibanInvalidText: string,
   emailEmptyText: string,
   emailInvalidText: string,
   accountNumberText: string,
+  accountNumberInvalidText: string,
+  sortCodeInvalidText: string,
   fullNameLabel: string,
   line1Label: string,
   line1Placeholder: string,
@@ -38,12 +72,15 @@ type localeStrings = {
   countryLabel: string,
   currencyLabel: string,
   bankLabel: string,
+  documentTypeLabel: string,
   redirectText: string,
   bankDetailsText: string,
   orPayUsing: string,
   addNewCard: string,
   useExisitingSavedCards: string,
   saveCardDetails: string,
+  savePaymentDetails: string,
+  savePaymentDetailsWhereverPossible: string,
   addBankAccount: string,
   achBankDebitTerms: string => string,
   sepaDebitTerms: string => string,
@@ -71,13 +108,14 @@ type localeStrings = {
   billingDetailsText: string,
   socialSecurityNumberLabel: string,
   saveWalletDetails: string,
-  morePaymentMethods: string,
+  newPaymentMethods: string,
   useExistingPaymentMethods: string,
   cardNickname: string,
   nicknamePlaceholder: string,
   cardExpiredText: string,
   cardHeader: string,
   cardBrandConfiguredErrorText: string => string,
+  cardNotEligibleText: string,
   currencyNetwork: string,
   expiryPlaceholder: string,
   dateOfBirth: string,
@@ -111,6 +149,7 @@ type localeStrings = {
   formFieldBankAccountNumberLabel: string,
   formFieldPhoneNumberLabel: string,
   formFieldCountryCodeLabel: string,
+  formFieldCountryCodeRequiredLabel: string,
   formFieldBankNameLabel: string,
   formFieldBankCityLabel: string,
   formFieldCardHoldernamePlaceholder: string,
@@ -143,11 +182,114 @@ type localeStrings = {
   pixKeyEmptyText: string,
   pixKeyLabel: string,
   pixKeyPlaceholder: string,
-  destinationBankAccountIdEmptyText: string,
   sourceBankAccountIdEmptyText: string,
   invalidCardHolderNameError: string,
+  cardHolderNameRequiredText: string,
+  lastNameRequiredText: string,
+  mandatoryFieldText: string,
+  phoneInvalidText: string,
+  blikCodeInvalidText: string,
   invalidNickNameError: string,
   expiry: string,
+  payment_methods_afterpay_clearpay: string,
+  payment_methods_google_pay: string,
+  payment_methods_apple_pay: string,
+  payment_methods_samsung_pay: string,
+  payment_methods_mb_way: string,
+  payment_methods_mobile_pay: string,
+  payment_methods_ali_pay: string,
+  payment_methods_ali_pay_hk: string,
+  payment_methods_we_chat_pay: string,
+  payment_methods_duit_now: string,
+  payment_methods_revolut_pay: string,
+  payment_methods_affirm: string,
+  payment_methods_pay_safe_card: string,
+  payment_methods_crypto_currency: string,
+  payment_methods_card: string,
+  payment_methods_klarna: string,
+  payment_methods_sofort: string,
+  payment_methods_ach_transfer: string,
+  payment_methods_bacs_transfer: string,
+  payment_methods_sepa_bank_transfer: string,
+  payment_methods_instant_bank_transfer: string,
+  payment_methods_instant_bank_transfer_finland: string,
+  payment_methods_instant_bank_transfer_poland: string,
+  payment_methods_sepa_debit: string,
+  payment_methods_giropay: string,
+  payment_methods_eps: string,
+  payment_methods_walley: string,
+  payment_methods_pay_bright: string,
+  payment_methods_ach_debit: string,
+  payment_methods_bacs_debit: string,
+  payment_methods_becs_debit: string,
+  payment_methods_blik: string,
+  payment_methods_trustly: string,
+  payment_methods_bancontact_card: string,
+  payment_methods_online_banking_czech_republic: string,
+  payment_methods_online_banking_slovakia: string,
+  payment_methods_online_banking_finland: string,
+  payment_methods_online_banking_poland: string,
+  payment_methods_ideal: string,
+  payment_methods_ban_connect: string,
+  payment_methods_ach_bank_debit: string,
+  payment_methods_przelewy24: string,
+  payment_methods_interac: string,
+  payment_methods_twint: string,
+  payment_methods_vipps: string,
+  payment_methods_dana: string,
+  payment_methods_go_pay: string,
+  payment_methods_kakao_pay: string,
+  payment_methods_gcash: string,
+  payment_methods_momo: string,
+  payment_methods_touch_n_go: string,
+  payment_methods_bizum: string,
+  payment_methods_classic: string,
+  payment_methods_online_banking_fpx: string,
+  payment_methods_online_banking_thailand: string,
+  payment_methods_alma: string,
+  payment_methods_atome: string,
+  payment_methods_multibanco_transfer: string,
+  payment_methods_card_redirect: string,
+  payment_methods_pay_by_bank: string,
+  payment_methods_open_banking_pis: string,
+  payment_methods_evoucher: string,
+  payment_methods_pix_transfer: string,
+  payment_methods_pix_emv_transfer: string,
+  payment_methods_boleto: string,
+  payment_methods_paypal: string,
+  payment_methods_local_bank_transfer_transfer: string,
+  payment_methods_mifinity: string,
+  payment_methods_upi_collect: string,
+  payment_methods_eft: string,
+  payment_methods_givex: string,
+  payment_methods_saved_methods: string,
+  giftCardSectionTitle: string,
+  giftCardNumberLabel: string,
+  giftCardNumberPlaceholder: string,
+  giftCardNumberEmptyText: string,
+  giftCardNumberInvalidText: string,
+  giftCardPinLabel: string,
+  giftCardPinPlaceholder: string,
+  giftCardPinEmptyText: string,
+  giftCardPinInvalidText: string,
+  cardText: string,
+  giftCardAppliedText: string,
+  giftCardPaymentCompleteMessage: string,
+  giftCardPaymentRemainingMessage: (string, string) => string,
+  installmentPayInInstallments: string,
+  installmentInterestFree: string,
+  installmentWithInterest: string,
+  installmentTotal: string,
+  installmentSelectPlanError: string,
+  installmentSelectPlanPlaceholder: string,
+  showMore: string,
+  showLess: string,
+  refreshingText: string,
+  paymentDetailsBeingCheckedText: string,
+  eligibleOffersText: string,
+  checkingEligibleOffersText: string,
+  cardOfferText: string,
+  offerAppliedText: string,
 }
 
 type constantStrings = {
@@ -159,4 +301,38 @@ type constantStrings = {
   formFieldSepaBicPlaceholder: string,
   formFieldPixIdPlaceholder: string,
   formFieldBankAccountNumberPlaceholder: string,
+}
+
+let toValidationLocale = (webLocale: localeStrings): LocaleDataType.localeStrings => {
+  ...LocaleDataType.defaultLocale,
+  cardNumberEmptyText: webLocale.cardNumberEmptyText,
+  inValidCardErrorText: webLocale.inValidCardErrorText,
+  cardExpiryDateEmptyText: webLocale.cardExpiryDateEmptyText,
+  inValidExpiryErrorText: webLocale.inValidExpiryErrorText,
+  cvcNumberEmptyText: webLocale.cvcNumberEmptyText,
+  inValidCVCErrorText: webLocale.inCompleteCVCErrorText,
+  unsupportedCardErrorText: webLocale.cardNotEligibleText,
+  emailEmptyText: webLocale.emailEmptyText,
+  emailInvalidText: webLocale.emailInvalidText,
+  cardHolderNameRequiredText: webLocale.cardHolderNameRequiredText,
+  invalidDigitsCardHolderNameError: webLocale.invalidCardHolderNameError,
+  lastNameRequiredText: webLocale.lastNameRequiredText,
+  vpaIdEmptyText: webLocale.vpaIdEmptyText,
+  vpaIdInvalidText: webLocale.vpaIdInvalidText,
+  invalidNickNameError: webLocale.invalidNickNameError,
+  pixKeyEmptyText: webLocale.pixKeyEmptyText,
+  pixCPFEmptyText: webLocale.pixCPFEmptyText,
+  pixCPFInvalidText: webLocale.pixCPFInvalidText,
+  pixCNPJEmptyText: webLocale.pixCNPJEmptyText,
+  pixCNPJInvalidText: webLocale.pixCNPJInvalidText,
+  mandatoryFieldText: webLocale.mandatoryFieldText,
+  phoneInvalidText: webLocale.phoneInvalidText,
+  blikCodeInvalidText: webLocale.blikCodeInvalidText,
+  accountNumberInvalidText: webLocale.accountNumberInvalidText,
+  ibanEmptyText: webLocale.ibanEmptyText,
+  postalCodeInvalidText: webLocale.postalCodeInvalidText,
+  formFieldInvalidRoutingNumber: webLocale.formFieldInvalidRoutingNumber,
+  enterValidDetailsText: webLocale.enterValidDetailsText,
+  dateofBirthRequiredText: webLocale.dateofBirthRequiredText,
+  dateOfBirthInvalidText: webLocale.dateOfBirthInvalidText,
 }

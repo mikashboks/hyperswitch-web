@@ -1,10 +1,6 @@
-type apiCall =
-  | FetchPaymentMethodList
-  | FetchCustomerPaymentMethodList
+type apiCallV1 =
   | FetchSessions
   | FetchThreeDsAuth
-  | FetchSavedPaymentMethodList
-  | DeletePaymentMethod
   | CalculateTax
   | CreatePaymentMethod
   | RetrievePaymentIntent
@@ -12,37 +8,30 @@ type apiCall =
   | CallAuthExchange
   | RetrieveStatus
   | ConfirmPayout
+  | FetchEnabledAuthnMethodsToken
+  | FetchEligibilityCheck
+  | FetchAuthenticationSync
+  | FetchPaymentMethodEligibility
+  | FetchSdkConfigs
+  | FetchClientList
 
-type apiParams = {
-  clientSecret: option<string>,
+type commonApiParams = {
   publishableKey: option<string>,
   customBackendBaseUrl: option<string>,
-  paymentMethodId: option<string>,
-  forceSync: option<string>,
-  pollId: option<string>,
 }
 
-let generateApiUrl = (apiCallType: apiCall, ~params: apiParams) => {
-  let {
-    clientSecret,
-    publishableKey,
-    customBackendBaseUrl,
-    paymentMethodId,
-    forceSync,
-    pollId,
-  } = params
+type apiParamsV1 = {
+  ...commonApiParams,
+  clientSecret: option<string>,
+  forceSync: option<string>,
+  pollId: option<string>,
+  payoutId: option<string>,
+  sdkAuthorization: option<string>,
+  authenticationId?: string,
+  merchantId?: string,
+}
 
-  let clientSecretVal = clientSecret->Option.getOr("")
-  let publishableKeyVal = publishableKey->Option.getOr("")
-  let paymentIntentID = Utils.getPaymentId(clientSecretVal)
-  let paymentMethodIdVal = paymentMethodId->Option.getOr("")
-  let pollIdVal = pollId->Option.getOr("")
-
-  let baseUrl =
-    customBackendBaseUrl->Option.getOr(
-      ApiEndpoint.getApiEndPoint(~publishableKey=publishableKeyVal),
-    )
-
+module CommonUtils = {
   let buildQueryParams = params =>
     switch params {
     | list{} => ""
@@ -51,50 +40,89 @@ let generateApiUrl = (apiCallType: apiCall, ~params: apiParams) => {
       ->List.map(((key, value)) => `${key}=${value}`)
       ->List.reduce("", (acc, param) => acc === "" ? `?${param}` : `${acc}&${param}`)
     }
+}
+
+let generateApiUrlV1 = (~params: apiParamsV1, ~apiCallType: apiCallV1) => {
+  let {
+    clientSecret,
+    publishableKey,
+    customBackendBaseUrl,
+    forceSync,
+    pollId,
+    payoutId,
+    sdkAuthorization,
+  } = params
+
+  let clientSecretVal = clientSecret->Option.getOr("")
+  let publishableKeyVal = publishableKey->Option.getOr("")
+  let paymentIntentId = Utils.getPaymentIdOrExtractFromSdkAuth(
+    ~clientSecret=clientSecretVal,
+    ~sdkAuthorization=sdkAuthorization->Utils.getNonEmptyOption,
+  )
+  let pollIdVal = pollId->Option.getOr("")
+  let payoutIdVal = payoutId->Option.getOr("")
+
+  let authenticationIdVal = params.authenticationId->Option.getOr("")
+  let merchantId = params.merchantId->Option.getOr("")
+
+  let baseUrl =
+    customBackendBaseUrl->Option.getOr(
+      ApiEndpoint.getApiEndPoint(~publishableKey=publishableKeyVal),
+    )
+
+  let isRetrieveIntent = switch apiCallType {
+  | RetrievePaymentIntent => true
+  | _ => false
+  }
 
   let defaultParams = list{
-    switch clientSecret {
-    | Some(cs) => Some(("client_secret", cs))
-    | None => None
+    switch (sdkAuthorization->Utils.getNonEmptyOption, clientSecret) {
+    | (None, Some(cs)) => Some(("client_secret", cs))
+    | _ => None
     },
     switch forceSync {
-    | Some(fs) if apiCallType === RetrievePaymentIntent => Some(("false_sync", fs))
+    | Some(fs) if isRetrieveIntent => Some(("force_sync", fs))
     | _ => None
     },
   }->List.filterMap(x => x)
 
   let queryParams = switch apiCallType {
-  | FetchPaymentMethodList
-  | FetchCustomerPaymentMethodList
-  | RetrievePaymentIntent => defaultParams
+  | RetrievePaymentIntent
+  | FetchSdkConfigs
+  | FetchClientList => defaultParams
   | FetchSessions
   | FetchThreeDsAuth
-  | FetchSavedPaymentMethodList
-  | DeletePaymentMethod
   | CalculateTax
   | CreatePaymentMethod
   | CallAuthLink
   | CallAuthExchange
   | RetrieveStatus
-  | ConfirmPayout =>
+  | ConfirmPayout
+  | FetchEnabledAuthnMethodsToken
+  | FetchEligibilityCheck
+  | FetchAuthenticationSync
+  | FetchPaymentMethodEligibility =>
     list{}
   }
 
   let path = switch apiCallType {
-  | FetchPaymentMethodList => "account/payment_methods"
   | FetchSessions => "payments/session_tokens"
-  | FetchThreeDsAuth => `payments/${paymentIntentID}/3ds/authentication`
-  | FetchCustomerPaymentMethodList
-  | FetchSavedPaymentMethodList => "customers/payment_methods"
-  | DeletePaymentMethod => `payment_methods/${paymentMethodIdVal}`
-  | CalculateTax => `payments/${paymentIntentID}/calculate_tax`
+  | FetchThreeDsAuth => `payments/${paymentIntentId}/3ds/authentication`
+  | CalculateTax => `payments/${paymentIntentId}/calculate_tax`
   | CreatePaymentMethod => "payment_methods"
-  | RetrievePaymentIntent => `payments/${paymentIntentID}`
+  | RetrievePaymentIntent => `payments/${paymentIntentId}`
   | CallAuthLink => "payment_methods/auth/link"
   | CallAuthExchange => "payment_methods/auth/exchange"
   | RetrieveStatus => `poll/status/${pollIdVal}`
-  | ConfirmPayout => `payouts/${paymentIntentID}/confirm`
+  | ConfirmPayout => `payouts/${payoutIdVal}/confirm`
+  | FetchEnabledAuthnMethodsToken =>
+    `authentication/${authenticationIdVal}/enabled_authn_methods_token`
+  | FetchEligibilityCheck => `authentication/${authenticationIdVal}/eligibility-check`
+  | FetchAuthenticationSync => `authentication/${merchantId}/${authenticationIdVal}/sync`
+  | FetchPaymentMethodEligibility => `payments/${paymentIntentId}/eligibility`
+  | FetchSdkConfigs => "v1/sdk/configs/web/sdk_config.json"
+  | FetchClientList => `payments/${paymentIntentId}/client`
   }
 
-  `${baseUrl}/${path}${buildQueryParams(queryParams)}`
+  `${baseUrl}/${path}${CommonUtils.buildQueryParams(queryParams)}`
 }

@@ -1,19 +1,20 @@
-open RecoilAtoms
+open JotaiAtoms
 open Utils
-open PaymentModeType
 
 @react.component
 let make = () => {
   let (requiredFieldsBody, setRequiredFieldsBody) = React.useState(_ => Dict.make())
 
-  let loggerState = Recoil.useRecoilValueFromAtom(loggerAtom)
-  let isManualRetryEnabled = Recoil.useRecoilValueFromAtom(isManualRetryEnabled)
-  let {config, themeObj} = Recoil.useRecoilValueFromAtom(configAtom)
+  let loggerState = Jotai.useAtomValue(loggerAtom)
+  let isManualRetryEnabled = Jotai.useAtomValue(isManualRetryEnabled)
+  let {sdkAuthorization} = Jotai.useAtomValue(keys)
+  let {config, themeObj} = Jotai.useAtomValue(configAtom)
+  let {displaySavedPaymentMethods, layout} = Jotai.useAtomValue(optionAtom)
+  let layoutClass = CardUtils.getLayoutClass(layout)
   let intent = PaymentHelpers.usePaymentIntent(Some(loggerState), BankDebits)
-  let {displaySavedPaymentMethods} = Recoil.useRecoilValueFromAtom(optionAtom)
-  let paymentMethodListValue = Recoil.useRecoilValueFromAtom(PaymentUtils.paymentMethodListValue)
-  let areRequiredFieldsValid = Recoil.useRecoilValueFromAtom(areRequiredFieldsValid)
-  let areRequiredFieldsEmpty = Recoil.useRecoilValueFromAtom(areRequiredFieldsEmpty)
+  let paymentMethodListValue = Jotai.useAtomValue(PaymentUtils.paymentMethodListValue)
+  let areRequiredFieldsValid = Jotai.useAtomValue(areRequiredFieldsValid)
+  let areRequiredFieldsEmpty = Jotai.useAtomValue(areRequiredFieldsEmpty)
 
   let pmAuthMapper = React.useMemo1(
     () =>
@@ -21,8 +22,11 @@ let make = () => {
     [paymentMethodListValue.payment_methods],
   )
 
+  let paymentMethodType = "sepa"
+  let paymentMethod = "bank_debit"
+
   let isVerifyPMAuthConnectorConfigured =
-    displaySavedPaymentMethods && pmAuthMapper->Dict.get("sepa")->Option.isSome
+    displaySavedPaymentMethods && pmAuthMapper->Dict.get(paymentMethodType)->Option.isSome
 
   UtilityHooks.useHandlePostMessages(
     ~complete=areRequiredFieldsValid,
@@ -33,11 +37,12 @@ let make = () => {
   let submitCallback = React.useCallback((ev: Window.event) => {
     let json = ev.data->safeParse
     let confirm = json->getDictFromJson->ConfirmType.itemToObjMapper
+    let body = PaymentBody.dynamicPaymentBody(paymentMethod, paymentMethodType)
 
     if confirm.doSubmit {
       if areRequiredFieldsValid && !areRequiredFieldsEmpty {
         let sepaBody =
-          PaymentBody.dynamicPaymentBody("bank_debit", "sepa")
+          body
           ->getJsonFromArrayOfJson
           ->flattenObject(true)
           ->mergeTwoFlattenedJsonDicts(requiredFieldsBody)
@@ -52,20 +57,29 @@ let make = () => {
         postFailedSubmitResponse(~errortype="validation_error", ~message="Please enter all fields")
       }
     }
-  }, (isManualRetryEnabled, areRequiredFieldsValid, areRequiredFieldsEmpty, requiredFieldsBody))
+  }, (
+    isManualRetryEnabled,
+    areRequiredFieldsValid,
+    areRequiredFieldsEmpty,
+    requiredFieldsBody,
+    sdkAuthorization,
+  ))
 
-  useSubmitPaymentData(submitCallback)
+  PaymentMessageHooks.useSubmitPaymentData(submitCallback)
 
   isVerifyPMAuthConnectorConfigured
-    ? <AddBankDetails paymentMethodType="sepa" />
+    ? <AddBankDetails paymentMethodType />
     : <div
         className="flex flex-col animate-slowShow"
         style={
           gridGap: {config.appearance.innerLayout === Spaced ? themeObj.spacingGridColumn : ""},
         }>
-        <DynamicFields paymentMethod="bank_debit" paymentMethodType="sepa" setRequiredFieldsBody />
-        <Surcharge paymentMethod="bank_debit" paymentMethodType="sepa" />
-        <Terms mode=SepaBankDebit />
+        <RenderIf condition={layoutClass.\"type" === Accordion}>
+          <Space height="0" />
+        </RenderIf>
+        <DynamicFields paymentMethod paymentMethodType setRequiredFieldsBody />
+        <Surcharge paymentMethod paymentMethodType />
+        <Terms paymentMethod paymentMethodType />
       </div>
 }
 

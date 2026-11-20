@@ -1,11 +1,10 @@
-open RecoilAtoms
+open JotaiAtoms
 open Utils
 
 @react.component
 let make = () => {
-  let {localeString} = Recoil.useRecoilValueFromAtom(configAtom)
-  let loggerState = Recoil.useRecoilValueFromAtom(loggerAtom)
-  let (vpaId, setVpaId) = Recoil.useLoggedRecoilState(userVpaId, "vpaId", loggerState)
+  let {localeString} = Jotai.useAtomValue(configAtom)
+  let (vpaId, setVpaId) = Jotai.useAtom(userVpaId)
 
   let vpaIdRef = React.useRef(Nullable.null)
 
@@ -44,7 +43,7 @@ let make = () => {
       }
     }
   }, [vpaId])
-  useSubmitPaymentData(submitCallback)
+  PaymentMessageHooks.useSubmitPaymentData(submitCallback)
 
   <PaymentField
     fieldName=localeString.vpaIdLabel

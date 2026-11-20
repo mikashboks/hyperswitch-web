@@ -5,15 +5,17 @@ let getGooglePayBodyFromResponse = (
   ~isGuestCustomer,
   ~paymentMethodListValue=PaymentMethodsRecord.defaultList,
   ~connectors,
-  ~requiredFields=[],
+  ~requiredFields: array<SuperpositionTypes.fieldConfig>=[],
   ~isPaymentSession=false,
   ~isSavedMethodsFlow=false,
+  ~alwaysSend=false,
 ) => {
   let obj = gPayResponse->getDictFromJson->GooglePayType.itemToObjMapper
   let gPayBody = PaymentUtils.appendedCustomerAcceptance(
     ~isGuestCustomer,
     ~paymentType=paymentMethodListValue.payment_type,
     ~body=PaymentBody.gpayBody(~payObj=obj, ~connectors),
+    ~alwaysSend,
   )
 
   let billingContact =
@@ -41,7 +43,9 @@ let getGooglePayBodyFromResponse = (
     DynamicFieldsUtils.getGooglePayRequiredFields(
       ~billingContact,
       ~shippingContact,
-      ~requiredFields,
+      ~requiredFieldPaths=requiredFields->Array.map(fieldConfig =>
+        fieldConfig.confirmRequestWritePath
+      ),
       ~email,
     )
   }
@@ -75,33 +79,34 @@ let useHandleGooglePayResponse = (
   ~isSavedMethodsFlow=false,
   ~isWallet=true,
   ~requiredFieldsBody=Dict.make(),
+  ~requiredFields: array<SuperpositionTypes.fieldConfig>=[],
+  ~sdkAuthorization,
 ) => {
-  let options = Recoil.useRecoilValueFromAtom(RecoilAtoms.optionAtom)
-  let {publishableKey} = Recoil.useRecoilValueFromAtom(RecoilAtoms.keys)
-  let isManualRetryEnabled = Recoil.useRecoilValueFromAtom(RecoilAtoms.isManualRetryEnabled)
+  let options = Jotai.useAtomValue(JotaiAtoms.optionAtom)
+  let {parentURL, publishableKey} = Jotai.useAtomValue(JotaiAtoms.keys)
+  let isManualRetryEnabled = Jotai.useAtomValue(JotaiAtoms.isManualRetryEnabled)
 
-  let paymentMethodListValue = Recoil.useRecoilValueFromAtom(PaymentUtils.paymentMethodListValue)
+  let paymentMethodListValue = Jotai.useAtomValue(PaymentUtils.paymentMethodListValue)
   let isGuestCustomer = UtilityHooks.useIsGuestCustomer()
-
-  let paymentMethodTypes = DynamicFieldsUtils.usePaymentMethodTypeFromList(
-    ~paymentMethodListValue,
-    ~paymentMethod="wallet",
-    ~paymentMethodType="google_pay",
-  )
 
   React.useEffect(() => {
     let handle = (ev: Window.event) => {
       let json = ev.data->safeParse
       let dict = json->getDictFromJson
-      if dict->Dict.get("gpayResponse")->Option.isSome {
+
+      if (
+        dict->Dict.get("gpayResponse")->Option.isSome &&
+          dict->Utils.getBool("isSavedMethodsFlow", false) === isSavedMethodsFlow
+      ) {
         let metadata = dict->getJsonObjectFromDict("gpayResponse")
         let body = getGooglePayBodyFromResponse(
           ~gPayResponse=metadata,
           ~isGuestCustomer,
           ~paymentMethodListValue,
           ~connectors,
-          ~requiredFields=paymentMethodTypes.required_fields,
+          ~requiredFields,
           ~isSavedMethodsFlow,
+          ~alwaysSend=options.alwaysSendCustomerAcceptance,
         )
 
         let googlePayBody = if isWallet {
@@ -126,12 +131,31 @@ let useHandleGooglePayResponse = (
         }
       }
     }
-    Window.addEventListener("message", handle)
-    Some(() => {Window.removeEventListener("message", handle)})
-  }, (paymentMethodTypes, isManualRetryEnabled, requiredFieldsBody, isWallet))
+    let handleTrusted = (ev: Window.event) => {
+      if Utils.isParentMessage(~parentOrigin=parentURL, ev) {
+        handle(ev)
+      }
+    }
+    Window.addEventListener("message", handleTrusted)
+    Some(() => {Window.removeEventListener("message", handleTrusted)})
+  }, (
+    requiredFields,
+    isManualRetryEnabled,
+    requiredFieldsBody,
+    isWallet,
+    isSavedMethodsFlow,
+    sdkAuthorization,
+    parentURL,
+  ))
 }
 
-let handleGooglePayClicked = (~sessionObj, ~componentName, ~iframeId, ~readOnly) => {
+let handleGooglePayClicked = (
+  ~sessionObj,
+  ~componentName,
+  ~iframeId,
+  ~readOnly,
+  ~isSavedMethodsFlow=false,
+) => {
   let paymentDataRequest = GooglePayType.getPaymentDataFromSession(~sessionObj, ~componentName)
   messageParentWindow([
     ("fullscreen", true->JSON.Encode.bool),
@@ -142,16 +166,17 @@ let handleGooglePayClicked = (~sessionObj, ~componentName, ~iframeId, ~readOnly)
     messageParentWindow([
       ("GpayClicked", true->JSON.Encode.bool),
       ("GpayPaymentDataRequest", paymentDataRequest->Identity.anyTypeToJson),
+      ("isSavedMethodsFlow", isSavedMethodsFlow->JSON.Encode.bool),
     ])
   }
 }
 
 let useSubmitCallback = (~isWallet, ~sessionObj, ~componentName) => {
-  let areRequiredFieldsValid = Recoil.useRecoilValueFromAtom(RecoilAtoms.areRequiredFieldsValid)
-  let areRequiredFieldsEmpty = Recoil.useRecoilValueFromAtom(RecoilAtoms.areRequiredFieldsEmpty)
-  let options = Recoil.useRecoilValueFromAtom(RecoilAtoms.optionAtom)
-  let {localeString} = Recoil.useRecoilValueFromAtom(RecoilAtoms.configAtom)
-  let {iframeId} = Recoil.useRecoilValueFromAtom(RecoilAtoms.keys)
+  let areRequiredFieldsValid = Jotai.useAtomValue(JotaiAtoms.areRequiredFieldsValid)
+  let areRequiredFieldsEmpty = Jotai.useAtomValue(JotaiAtoms.areRequiredFieldsEmpty)
+  let options = Jotai.useAtomValue(JotaiAtoms.optionAtom)
+  let {localeString} = Jotai.useAtomValue(JotaiAtoms.configAtom)
+  let {iframeId} = Jotai.useAtomValue(JotaiAtoms.keys)
 
   React.useCallback((ev: Window.event) => {
     if !isWallet {

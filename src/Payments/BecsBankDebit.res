@@ -1,26 +1,27 @@
-open RecoilAtoms
-open RecoilAtomTypes
+open JotaiAtoms
+open JotaiAtomTypes
 open Utils
 
 @react.component
 let make = () => {
   let cleanBSB = str => str->String.replaceRegExp(%re("/-/g"), "")
 
-  let loggerState = Recoil.useRecoilValueFromAtom(loggerAtom)
-  let setComplete = Recoil.useSetRecoilState(fieldsComplete)
-  let {themeObj} = Recoil.useRecoilValueFromAtom(configAtom)
+  let loggerState = Jotai.useAtomValue(loggerAtom)
+  let setComplete = Jotai.useSetAtom(fieldsComplete)
+  let {themeObj} = Jotai.useAtomValue(configAtom)
   let (modalData, setModalData) = React.useState(_ => None)
 
-  let (fullName, _) = Recoil.useLoggedRecoilState(userFullName, "fullName", loggerState)
-  let (email, _) = Recoil.useLoggedRecoilState(userEmailAddress, "email", loggerState)
-  let (line1, _) = Recoil.useLoggedRecoilState(userAddressline1, "line1", loggerState)
-  let (line2, _) = Recoil.useLoggedRecoilState(userAddressline2, "line2", loggerState)
-  let (country, _) = Recoil.useLoggedRecoilState(userAddressCountry, "country", loggerState)
-  let (city, _) = Recoil.useLoggedRecoilState(userAddressCity, "city", loggerState)
-  let (postalCode, _) = Recoil.useLoggedRecoilState(userAddressPincode, "postal_code", loggerState)
-  let (state, _) = Recoil.useLoggedRecoilState(userAddressState, "state", loggerState)
+  let fullName = Jotai.useAtomValue(userFullName)
+  let email = Jotai.useAtomValue(userEmailAddress)
+  let line1 = Jotai.useAtomValue(userAddressline1)
+  let line2 = Jotai.useAtomValue(userAddressline2)
+  let country = Jotai.useAtomValue(userAddressCountry)
+  let city = Jotai.useAtomValue(userAddressCity)
+  let postalCode = Jotai.useAtomValue(userAddressPincode)
+  let state = Jotai.useAtomValue(userAddressState)
   let intent = PaymentHelpers.usePaymentIntent(Some(loggerState), BankDebits)
-  let isManualRetryEnabled = Recoil.useRecoilValueFromAtom(RecoilAtoms.isManualRetryEnabled)
+  let isManualRetryEnabled = Jotai.useAtomValue(JotaiAtoms.isManualRetryEnabled)
+  let {sdkAuthorization} = Jotai.useAtomValue(keys)
   let countryCode = Utils.getCountryCode(country.value).isoAlpha2
   let stateCode = Utils.getStateCodeFromStateName(state.value, countryCode)
 
@@ -43,6 +44,7 @@ let make = () => {
     }
 
   UtilityHooks.useHandlePostMessages(~complete, ~empty, ~paymentType="becs_bank_debit")
+  SubscriptionEventHooks.useEmitFormStatus(~empty, ~complete)
 
   React.useEffect(() => {
     setComplete(_ => complete)
@@ -80,8 +82,11 @@ let make = () => {
         postFailedSubmitResponse(~errortype="validation_error", ~message="Please enter all fields")
       }
     }
-  }, (email, fullName, modalData, isManualRetryEnabled))
-  useSubmitPaymentData(submitCallback)
+  }, (email, fullName, modalData, isManualRetryEnabled, sdkAuthorization))
+  PaymentMessageHooks.useSubmitPaymentData(submitCallback)
+
+  let paymentMethod = "bank_debit"
+  let paymentMethodType = "becs"
 
   <div className="flex flex-col animate-slowShow" style={gridGap: themeObj.spacingGridColumn}>
     <EmailPaymentInput />
@@ -90,8 +95,8 @@ let make = () => {
     <FullScreenPortal>
       <BankDebitModal setModalData />
     </FullScreenPortal>
-    <Surcharge paymentMethod="bank_debit" paymentMethodType="becs" />
-    <Terms mode=PaymentModeType.BecsBankDebit />
+    <Surcharge paymentMethod paymentMethodType />
+    <Terms paymentMethod paymentMethodType />
   </div>
 }
 

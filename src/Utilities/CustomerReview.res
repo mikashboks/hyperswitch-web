@@ -167,7 +167,8 @@ let read = async (context: context) => {
 let afterPrecondition = async (~statusCode, ~uri, ~context, ~onReview, ~onHandled, ~fallback) => {
   switch (statusCode, context, onReview) {
   | (412, Some(context), Some(onReview))
-    if uri == `${context.backendUrl}/v2/payments/${context.paymentId}/confirm-intent` =>
+    if uri == `${context.backendUrl}/payments/${context.paymentId}/confirm` ||
+      uri == `${context.backendUrl}/v2/payments/${context.paymentId}/confirm-intent` =>
     let snapshot = await read(context)
     switch snapshot {
     | Some(snapshot) if snapshot.review->Option.isSome =>
@@ -185,3 +186,44 @@ let remember = (snapshots, snapshot: snapshot) => {
   next->Dict.set(snapshot.scopeKey, snapshot)
   next
 }
+
+// This consumer is limited to the explicit hosted-v2 credential delivered by
+// the normal mount message. It never derives tenant/profile from URL guesses.
+@module("./HostedCustomerContext.js")
+external hostedContext: (string, option<string>, string, string) => option<context> =
+  "hostedContext"
+
+let contextForKeys = (keys: CommonHooks.keys, customPodUri) =>
+  switch hostedContext(keys.customerBackendUrl, keys.sdkAuthorization, keys.publishableKey, customPodUri) {
+  | Some(_) as context => context
+  | None if
+      GlobalVars.sdkApiVersion == "v2" &&
+      keys.sdkAuthorization->Option.getOr("") == "" &&
+      keys.customerBackendUrl != "" &&
+      keys.paymentId != "" &&
+      keys.profileId != "" =>
+    keys.clientSecret->Option.map(clientSecret => {
+      backendUrl: keys.customerBackendUrl,
+      publishableKey: keys.publishableKey,
+      profileId: keys.profileId,
+      tenantId: keys.tenantId,
+      paymentId: keys.paymentId,
+      clientSecret,
+      customPodUri,
+    })
+  | None => None
+  }
+
+type view = {context: context, snapshot: snapshot}
+type store
+@module("jotai") external useStore: unit => store = "useStore"
+@send external getAtom: (store, Jotai.atom<'a>) => 'a = "get"
+let scope = (context: context) =>
+  key(
+    ~backendUrl=context.backendUrl,
+    ~publishableKey=context.publishableKey,
+    ~tenantId=context.tenantId,
+    ~customPodUri=context.customPodUri,
+    ~paymentId=context.paymentId,
+    ~profileId=context.profileId,
+  )

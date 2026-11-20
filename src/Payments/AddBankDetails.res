@@ -1,7 +1,7 @@
 module Loader = {
   @react.component
   let make = () => {
-    let {themeObj} = Recoil.useRecoilValueFromAtom(RecoilAtoms.configAtom)
+    let {themeObj} = Jotai.useAtomValue(JotaiAtoms.configAtom)
     <div className="w-full flex items-center justify-center">
       <div className="w-8 h-8 animate-spin" style={color: themeObj.colorTextSecondary}>
         <Icon size=28 name="loader" />
@@ -14,24 +14,28 @@ module Loader = {
 let make = (~paymentMethodType) => {
   open Utils
   open Promise
-  let {publishableKey, clientSecret, iframeId} = Recoil.useRecoilValueFromAtom(RecoilAtoms.keys)
-  let {themeObj} = Recoil.useRecoilValueFromAtom(RecoilAtoms.configAtom)
-  let setOptionValue = Recoil.useSetRecoilState(RecoilAtoms.optionAtom)
-  let paymentMethodListValue = Recoil.useRecoilValueFromAtom(PaymentUtils.paymentMethodListValue)
-  let setShowFields = Recoil.useSetRecoilState(RecoilAtoms.showCardFieldsAtom)
+  let {publishableKey, clientSecret, iframeId, sdkAuthorization, parentURL} = Jotai.useAtomValue(
+    JotaiAtoms.keys,
+  )
+  let {themeObj} = Jotai.useAtomValue(JotaiAtoms.configAtom)
+  let setOptionValue = Jotai.useSetAtom(JotaiAtoms.optionAtom)
+  let paymentMethodListValue = Jotai.useAtomValue(PaymentUtils.paymentMethodListValue)
+  let setShowPaymentMethodsScreen = Jotai.useSetAtom(JotaiAtoms.showPaymentMethodsScreen)
   let (showLoader, setShowLoader) = React.useState(() => false)
-  let logger = Recoil.useRecoilValueFromAtom(RecoilAtoms.loggerAtom)
+  let logger = Jotai.useAtomValue(JotaiAtoms.loggerAtom)
+  let {layout} = Jotai.useAtomValue(JotaiAtoms.optionAtom)
+  let layoutClass = CardUtils.getLayoutClass(layout)
 
   let pmAuthConnectorsArr =
     PmAuthConnectorUtils.findPmAuthAllPMAuthConnectors(
       paymentMethodListValue.payment_methods,
     )->PmAuthConnectorUtils.getAllRequiredPmAuthConnectors
 
-  React.useEffect0(() => {
+  React.useEffect(() => {
     let onPlaidCallback = (ev: Window.event) => {
       let json = ev.data->safeParse
       let dict = json->Utils.getDictFromJson
-      if dict->getBool("isPlaid", false) {
+      if Utils.isParentMessage(~parentOrigin=parentURL, ev) && dict->getBool("isPlaid", false) {
         let publicToken = dict->getDictFromDict("data")->getString("publicToken", "")
         let isExited = dict->getDictFromDict("data")->getBool("isExited", false)
         setShowLoader(_ => !isExited)
@@ -43,10 +47,11 @@ let make = (~paymentMethodType) => {
             ~publishableKey,
             ~setOptionValue,
             ~logger,
+            ~sdkAuthorization,
           )
           ->then(_ => {
             messageParentWindow([("fullscreen", false->JSON.Encode.bool)])
-            setShowFields(_ => false)
+            setShowPaymentMethodsScreen(_ => false)
             JSON.Encode.null->resolve
           })
           ->catch(_ => JSON.Encode.null->resolve)
@@ -58,10 +63,10 @@ let make = (~paymentMethodType) => {
     Window.addEventListener("message", onPlaidCallback)
     Some(
       () => {
-        Window.removeEventListener("message", ev => onPlaidCallback(ev))
+        Window.removeEventListener("message", onPlaidCallback)
       },
     )
-  })
+  }, [parentURL])
 
   let submitCallback = React.useCallback((ev: Window.event) => {
     let json = ev.data->safeParse
@@ -73,7 +78,7 @@ let make = (~paymentMethodType) => {
       )
     }
   }, [])
-  useSubmitPaymentData(submitCallback)
+  PaymentMessageHooks.useSubmitPaymentData(submitCallback)
 
   let onClickHandler = () => {
     setShowLoader(_ => true)
@@ -84,6 +89,7 @@ let make = (~paymentMethodType) => {
       ~paymentMethodType,
       ~pmAuthConnectorsArr,
       ~logger,
+      ~sdkAuthorization,
     )->ignore
   }
 
@@ -91,6 +97,7 @@ let make = (~paymentMethodType) => {
     <button
       onClick={_ => onClickHandler()}
       disabled={showLoader}
+      className={layoutClass.\"type" == Accordion ? "mt-4" : ""}
       style={
         width: "100%",
         padding: "10px",

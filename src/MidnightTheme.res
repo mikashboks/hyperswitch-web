@@ -23,7 +23,7 @@ let midnight = {
   fontSizeXs: "10px",
   fontSize2Xs: "8px",
   fontSize3Xs: "6px",
-  colorSuccess: "",
+  colorSuccess: "#16875B",
   colorWarning: "",
   colorPrimaryText: "#000000",
   colorBackgroundText: "#ffffffe0",
@@ -49,6 +49,7 @@ let midnight = {
   buttonTextFontWeight: "500",
   buttonBorderWidth: "0px",
   disabledFieldColor: "#24252D",
+  inputFieldHeight: "48px",
 }
 
 let midnightRules = theme =>
@@ -149,6 +150,12 @@ let midnightRules = theme =>
     ".TabIcon": {
       "transition": "color .1s ease",
     },
+    ".TabSelectionIcon": {
+      "bottom": "-6px",
+      "right": "-6px",
+      "border": `2px solid ${theme.colorBackground}`,
+      "borderRadius": "50%",
+    },
     ".Block": {
       "backgroundColor": theme.colorBackground,
       "borderRadius": theme.borderRadius,
@@ -189,6 +196,12 @@ let midnightRules = theme =>
     },
     ".AccordionItemIcon--selected": {
       "color": theme.colorPrimary,
+    },
+    ".AccordionItemSelectionIcon": {
+      "bottom": "-6px",
+      "right": "-6px",
+      "border": `2px solid ${theme.colorBackground}`,
+      "borderRadius": "50%",
     },
     ".PickerItem": {
       "backgroundColor": theme.colorBackground,

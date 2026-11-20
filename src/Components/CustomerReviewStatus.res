@@ -30,7 +30,7 @@ let readableTime = (~locale, iso) => {
 
 @react.component
 let make = (~snapshot: CustomerReview.snapshot, ~onCheck: unit => promise<bool>) => {
-  let {localeString} = Recoil.useRecoilValueFromAtom(RecoilAtoms.configAtom)
+  let {localeString} = Jotai.useAtomValue(JotaiAtoms.configAtom)
   let (checking, setChecking) = React.useState(_ => false)
   let (unavailable, setUnavailable) = React.useState(_ => false)
   let check = async _ => {
@@ -78,7 +78,8 @@ let make = (~snapshot: CustomerReview.snapshot, ~onCheck: unit => promise<bool>)
       type_="button"
       disabled=checking
       onClick={event => check(event)->ignore}
-      className="underline py-2">
+      className="underline py-2"
+    >
       {React.string(checking ? "Checking payment status…" : "Check payment status")}
     </button>
   </section>

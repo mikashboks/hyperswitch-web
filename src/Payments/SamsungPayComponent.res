@@ -1,20 +1,23 @@
 @react.component
 let make = (~sessionObj: option<JSON.t>, ~walletOptions) => {
   open Utils
-  open RecoilAtoms
+  open JotaiAtoms
 
   let url = RescriptReactRouter.useUrl()
-  let isSamsungPayReady = Recoil.useRecoilValueFromAtom(isSamsungPayReady)
-  let loggerState = Recoil.useRecoilValueFromAtom(loggerAtom)
-  let options = Recoil.useRecoilValueFromAtom(optionAtom)
-  let updateSession = Recoil.useRecoilValueFromAtom(updateSession)
-  let setIsShowOrPayUsing = Recoil.useSetRecoilState(isShowOrPayUsing)
-  let areOneClickWalletsRendered = Recoil.useSetRecoilState(areOneClickWalletsRendered)
-  let {iframeId} = Recoil.useRecoilValueFromAtom(keys)
+  let isSamsungPayReady = Jotai.useAtomValue(isSamsungPayReady)
+  let loggerState = Jotai.useAtomValue(loggerAtom)
+  let options = Jotai.useAtomValue(optionAtom)
+  let emitter = SubscriptionEventHooks.useSubscriptionEventEmitter()
+  let updateSession = Jotai.useAtomValue(updateSession)
+  let setIsShowOrPayUsing = Jotai.useSetAtom(isShowOrPayUsing)
+  let areOneClickWalletsRendered = Jotai.useSetAtom(areOneClickWalletsRendered)
+  let {iframeId} = Jotai.useAtomValue(keys)
   let status = CommonHooks.useScript("https://img.mpay.samsung.com/gsmpi/sdk/samsungpay_web_sdk.js")
   let isWallet = walletOptions->Array.includes("samsung_pay")
   let componentName = CardUtils.getQueryParamsDictforKey(url.search, "componentName")
   let intent = PaymentHelpers.usePaymentIntent(Some(loggerState), Samsungpay)
+  let isTestMode = Jotai.useAtomValue(JotaiAtoms.isTestMode)
+  let {country, state, pinCode} = PaymentUtils.useNonPiiAddressData()
 
   let (_, _, _, _, heightType) = options.wallets.style.height
   let height = switch heightType {
@@ -30,18 +33,40 @@ let make = (~sessionObj: option<JSON.t>, ~walletOptions) => {
     })
 
   let onSamsungPaymentButtonClick = _ => {
-    loggerState.setLogInfo(
-      ~value="SamsungPay Button Clicked",
-      ~eventName=SAMSUNG_PAY,
-      ~paymentMethod="SAMSUNG_PAY",
-    )
-    PaymentUtils.emitPaymentMethodInfo(~paymentMethod="wallet", ~paymentMethodType="samsung_pay")
-    SamsungPayHelpers.handleSamsungPayClicked(
-      ~sessionObj=sessionObj->Option.getOr(JSON.Encode.null)->getDictFromJson,
-      ~componentName,
-      ~iframeId,
-      ~readOnly=options.readOnly,
-    )
+    if isTestMode {
+      Console.warn("Samsung Pay button clicked in test mode - interaction disabled")
+      loggerState.setLogInfo(
+        ~value="Samsung Pay button clicked in test mode - interaction disabled",
+        ~eventName=SAMSUNG_PAY,
+        ~paymentMethod="SAMSUNG_PAY",
+      )
+    } else {
+      loggerState.setLogInfo(
+        ~value="SamsungPay Button Clicked",
+        ~eventName=SAMSUNG_PAY,
+        ~paymentMethod="SAMSUNG_PAY",
+      )
+      PaymentUtils.emitPaymentMethodInfo(
+        ~paymentMethod="wallet",
+        ~paymentMethodType="samsung_pay",
+        ~country,
+        ~state,
+        ~pinCode,
+      )
+      emitter.emitPaymentMethodStatus(
+        ~paymentMethod="wallet",
+        ~paymentMethodType="samsung_pay",
+        ~isSavedPaymentMethod=false,
+        ~isOneClickWallet=true,
+      )
+      emitter.emitBillingAddress(~country, ~state, ~postalCode=pinCode)
+      SamsungPayHelpers.handleSamsungPayClicked(
+        ~sessionObj=sessionObj->Option.getOr(JSON.Encode.null)->getDictFromJson,
+        ~componentName,
+        ~iframeId,
+        ~readOnly=options.readOnly,
+      )
+    }
   }
 
   let buttonStyle = {

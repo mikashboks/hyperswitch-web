@@ -2,7 +2,7 @@ open CardThemeType
 open Utils
 open ErrorUtils
 
-let getTheme = val => {
+let getTheme = (val): theme => {
   switch val->String.toLowerCase {
   | "default" => Default
   | "brutal" => Brutal
@@ -28,6 +28,35 @@ let getInnerLayout = str => {
   }
 }
 
+let getColorScheme = (str): colorScheme => {
+  switch str->String.toLowerCase {
+  | "auto" => Auto
+  | "dark" => Dark
+  | "light" => Light
+  | str =>
+    str->unknownPropValueWarning(["light", "dark", "auto"], "appearance.colorScheme")
+    Light
+  }
+}
+
+let setColorSchemeMeta = (colorScheme: colorScheme) => {
+  open Window
+  let meta = switch querySelector(`meta[name="color-scheme"]`)->Nullable.toOption {
+  | Some(el) => el
+  | None =>
+    let el = createElement("meta")
+    el->setAttribute("name", "color-scheme")
+    head->appendChildElement(el)
+    el
+  }
+  let colorSchemeVal = switch colorScheme {
+  | Auto => "light dark"
+  | Dark => "dark"
+  | Light => "light"
+  }
+  meta->setAttribute("content", colorSchemeVal)
+}
+
 let getShowLoader = str => {
   switch str {
   | "auto" => Auto
@@ -47,6 +76,7 @@ let defaultAppearance = {
   labels: Above,
   rules: Dict.make()->JSON.Encode.object,
   innerLayout: Spaced,
+  colorScheme: Light,
 }
 let defaultFonts = {
   cssSrc: "",
@@ -59,12 +89,11 @@ let defaultConfig = {
   locale: "auto",
   fonts: [],
   clientSecret: "",
-  ephemeralKey: "",
-  pmClientSecret: "",
   pmSessionId: "",
   loader: Auto,
+  sdkAuthorization: "",
 }
-type recoilConfig = {
+type jotaiConfig = {
   config: configClass,
   themeObj: themeClass,
   localeString: LocaleStringTypes.localeStrings,
@@ -81,24 +110,38 @@ let getLocaleObject = async string => {
     }
 
     let promiseLocale = switch locale->LocaleStringHelper.mapLocalStringToTypeLocale {
-    | EN => Js.import(EnglishLocale.localeStrings)
-    | HE => Js.import(HebrewLocale.localeStrings)
-    | FR => Js.import(FrenchLocale.localeStrings)
-    | EN_GB => Js.import(EnglishGBLocale.localeStrings)
-    | AR => Js.import(ArabicLocale.localeStrings)
-    | JA => Js.import(JapaneseLocale.localeStrings)
-    | DE => Js.import(DeutschLocale.localeStrings)
-    | FR_BE => Js.import(FrenchBelgiumLocale.localeStrings)
-    | ES => Js.import(SpanishLocale.localeStrings)
-    | CA => Js.import(CatalanLocale.localeStrings)
-    | ZH => Js.import(ChineseLocale.localeStrings)
-    | PT => Js.import(PortugueseLocale.localeStrings)
-    | IT => Js.import(ItalianLocale.localeStrings)
-    | PL => Js.import(PolishLocale.localeStrings)
-    | NL => Js.import(DutchLocale.localeStrings)
-    | SV => Js.import(SwedishLocale.localeStrings)
-    | RU => Js.import(RussianLocale.localeStrings)
-    | ZH_HANT => Js.import(TraditionalChineseLocale.localeStrings)
+    | EN => import(EnglishLocale.localeStrings)
+    | HE => import(HebrewLocale.localeStrings)
+    | FR => import(FrenchLocale.localeStrings)
+    | EN_GB => import(EnglishGBLocale.localeStrings)
+    | AR => import(ArabicLocale.localeStrings)
+    | JA => import(JapaneseLocale.localeStrings)
+    | DE => import(DeutschLocale.localeStrings)
+    | FR_BE => import(FrenchBelgiumLocale.localeStrings)
+    | FR_CA => import(FrenchCanadianLocale.localeStrings)
+    | ES => import(SpanishLocale.localeStrings)
+    | CA => import(CatalanLocale.localeStrings)
+    | ZH => import(ChineseLocale.localeStrings)
+    | PT => import(PortugueseLocale.localeStrings)
+    | IT => import(ItalianLocale.localeStrings)
+    | PL => import(PolishLocale.localeStrings)
+    | NL => import(DutchLocale.localeStrings)
+    | SV => import(SwedishLocale.localeStrings)
+    | RU => import(RussianLocale.localeStrings)
+    | ZH_HANT => import(TraditionalChineseLocale.localeStrings)
+    | DA => import(DanishLocale.localeStrings)
+    | LT => import(LithuanianLocale.localeStrings)
+    | CS => import(CzechLocale.localeStrings)
+    | SK => import(SlovakLocale.localeStrings)
+    | IS => import(IcelandicLocale.localeStrings)
+    | CY => import(WelshLocale.localeStrings)
+    | EL => import(GreekLocale.localeStrings)
+    | ET => import(EstonianLocale.localeStrings)
+    | FI => import(FinnishLocale.localeStrings)
+    | NB => import(NorwegianLocale.localeStrings)
+    | BS => import(BosnianLocale.localeStrings)
+    | MS => import(MalayLocale.localeStrings)
+    | TR_CY => import(TurkishLocale.localeStrings)
     }
 
     let awaitedLocaleValue = await promiseLocale
@@ -110,14 +153,14 @@ let getLocaleObject = async string => {
 
 let getConstantStringsObject = async () => {
   try {
-    let promiseConstantStrings = Js.import(ConstantStrings.constantStrings)
+    let promiseConstantStrings = import(ConstantStrings.constantStrings)
     await promiseConstantStrings
   } catch {
   | _ => ConstantStrings.constantStrings
   }
 }
 
-let defaultRecoilConfig: recoilConfig = {
+let defaultJotaiConfig: jotaiConfig = {
   config: defaultConfig,
   themeObj: defaultConfig.appearance.variables,
   localeString: EnglishLocale.localeStrings,
@@ -175,6 +218,7 @@ let getVariables = (str, dict, default, logger) => {
       "buttonTextFontSize",
       "buttonTextFontWeight",
       "buttonBorderWidth",
+      "inputFieldHeight",
     ]
     unknownKeysWarning(validKeys, json, "appearance.variables")
     {
@@ -337,6 +381,12 @@ let getVariables = (str, dict, default, logger) => {
         default.disabledFieldColor,
         ~logger,
       ),
+      inputFieldHeight: getWarningString(
+        json,
+        "inputFieldHeight",
+        default.inputFieldHeight,
+        ~logger,
+      ),
     }
   })
   ->Option.getOr(default)
@@ -353,7 +403,11 @@ let getAppearance = (
   ->Dict.get(str)
   ->Option.flatMap(JSON.Decode.object)
   ->Option.map(json => {
-    unknownKeysWarning(["theme", "variables", "rules", "labels", "innerLayout"], json, "appearance")
+    unknownKeysWarning(
+      ["theme", "variables", "rules", "labels", "innerLayout", "colorScheme"],
+      json,
+      "appearance",
+    )
 
     let rulesJson = defaultRules(getVariables("variables", json, default, logger))
 
@@ -372,6 +426,7 @@ let getAppearance = (
           Above
         }
       },
+      colorScheme: getWarningString(json, "colorScheme", "light", ~logger)->getColorScheme,
     }
   })
   ->Option.getOr(defaultAppearance)
@@ -381,7 +436,7 @@ let getFonts = (str, dict, logger) => {
   ->Dict.get(str)
   ->Option.flatMap(JSON.Decode.array)
   ->Option.getOr([])
-  ->Belt.Array.keepMap(JSON.Decode.object)
+  ->Array.filterMap(JSON.Decode.object)
   ->Array.map(json => {
     unknownKeysWarning(["cssSrc", "family", "src", "weight"], json, "fonts")
     {
@@ -399,16 +454,7 @@ let itemToObjMapper = (
   logger,
 ) => {
   unknownKeysWarning(
-    [
-      "appearance",
-      "fonts",
-      "locale",
-      "clientSecret",
-      "loader",
-      "ephemeralKey",
-      "pmClientSecret",
-      "pmSessionId",
-    ],
+    ["appearance", "fonts", "locale", "clientSecret", "loader", "pmSessionId", "sdkAuthorization"],
     dict,
     "elements",
   )
@@ -417,9 +463,8 @@ let itemToObjMapper = (
     locale: getWarningString(dict, "locale", "auto", ~logger),
     fonts: getFonts("fonts", dict, logger),
     clientSecret: getWarningString(dict, "clientSecret", "", ~logger),
-    ephemeralKey: getWarningString(dict, "ephemeralKey", "", ~logger),
     pmSessionId: getWarningString(dict, "pmSessionId", "", ~logger),
-    pmClientSecret: getWarningString(dict, "pmClientSecret", "", ~logger),
     loader: getWarningString(dict, "loader", "auto", ~logger)->getShowLoader,
+    sdkAuthorization: getString(dict, "sdkAuthorization", ""),
   }
 }

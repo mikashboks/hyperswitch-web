@@ -20,6 +20,11 @@ function Payment() {
   const isCypressTestMode = getQueryParam("isCypressTestMode") === "true";
   const publishableKeyQueryParam = getQueryParam("publishableKey");
   const clientSecretQueryParam = getQueryParam("clientSecret");
+  const profileIdQueryParam = getQueryParam("profileId");
+  const localeQueryParam = getQueryParam("locale");
+  const themeQueryParam = getQueryParam("theme");
+  const layoutQueryParam = getQueryParam("layout");
+  const optionsQueryParam = getQueryParam("options");
 
   const baseUrl = SELF_SERVER_URL || ENDPOINT;
 
@@ -34,6 +39,10 @@ function Payment() {
           ? publishableKeyQueryParam
           : configData.publishableKey;
 
+        const profileId = isCypressTestMode
+          ? profileIdQueryParam
+          : configData?.profileId;
+
         const paymentIntentData = await getPaymentIntentData({
           baseUrl,
           isCypressTestMode,
@@ -46,7 +55,7 @@ function Payment() {
         const hyper = await loadHyperScript({
           clientUrl: urlsData.clientUrl,
           publishableKey,
-          profileId: configData?.profileId,
+          profileId,
           customBackendUrl: urlsData.serverUrl,
           isScriptLoaded,
           setIsScriptLoaded,
@@ -74,9 +83,9 @@ function Payment() {
 
   let selectedOptions;
   if (SDK_VERSION === "v1") {
-    selectedOptions = hyperOptionsV1(clientSecret);
+    selectedOptions = hyperOptionsV1(clientSecret, localeQueryParam, themeQueryParam);
   } else {
-    selectedOptions = hyperOptionsV2(clientSecret, paymentId);
+    selectedOptions = hyperOptionsV2(clientSecret, paymentId, localeQueryParam, themeQueryParam);
   }
 
   return (
@@ -89,7 +98,7 @@ function Payment() {
 
       {clientSecret && hyperPromise && (
         <HyperElements hyper={hyperPromise} options={selectedOptions}>
-          <CheckoutForm />
+          <CheckoutForm layoutQueryParam={layoutQueryParam} optionsQueryParam={optionsQueryParam} />
         </HyperElements>
       )}
     </div>

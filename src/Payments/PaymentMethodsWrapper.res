@@ -1,17 +1,19 @@
-open RecoilAtoms
-open RecoilAtomTypes
+open JotaiAtoms
+open JotaiAtomTypes
 open Utils
 
 @react.component
 let make = (~paymentMethodName: string) => {
-  let {iframeId} = Recoil.useRecoilValueFromAtom(keys)
-  let loggerState = Recoil.useRecoilValueFromAtom(loggerAtom)
-  let blikCode = Recoil.useRecoilValueFromAtom(userBlikCode)
-  let phoneNumber = Recoil.useRecoilValueFromAtom(userPhoneNumber)
-  let {themeObj} = Recoil.useRecoilValueFromAtom(configAtom)
-  let isManualRetryEnabled = Recoil.useRecoilValueFromAtom(RecoilAtoms.isManualRetryEnabled)
+  let {iframeId, sdkAuthorization} = Jotai.useAtomValue(keys)
+  let loggerState = Jotai.useAtomValue(loggerAtom)
+  let blikCode = Jotai.useAtomValue(userBlikCode)
+  let phoneNumber = Jotai.useAtomValue(userPhoneNumber)
+  let {themeObj} = Jotai.useAtomValue(configAtom)
+  let isManualRetryEnabled = Jotai.useAtomValue(JotaiAtoms.isManualRetryEnabled)
   let intent = PaymentHelpers.usePaymentIntent(Some(loggerState), Other)
-  let paymentMethodListValue = Recoil.useRecoilValueFromAtom(PaymentUtils.paymentMethodListValue)
+  let {layout} = Jotai.useAtomValue(optionAtom)
+  let layoutClass = CardUtils.getLayoutClass(layout)
+  let paymentMethodListValue = Jotai.useAtomValue(PaymentUtils.paymentMethodListValue)
   let optionPaymentMethodDetails =
     paymentMethodListValue
     ->PaymentMethodsRecord.buildFromPaymentList
@@ -21,6 +23,7 @@ let make = (~paymentMethodName: string) => {
     )
   let paymentMethodDetails =
     optionPaymentMethodDetails->Option.getOr(PaymentMethodsRecord.defaultPaymentMethodContent)
+
   let paymentFlow =
     paymentMethodDetails.paymentFlow
     ->Array.get(0)
@@ -28,17 +31,17 @@ let make = (~paymentMethodName: string) => {
       Some(flow)
     })
     ->Option.getOr(RedirectToURL)
-  let (fullName, _) = Recoil.useLoggedRecoilState(userFullName, "fullName", loggerState)
-  let (email, _) = Recoil.useLoggedRecoilState(userEmailAddress, "email", loggerState)
-  let (currency, _) = Recoil.useLoggedRecoilState(userCurrency, "currency", loggerState)
-  let (country, _) = Recoil.useRecoilState(userCountry)
-  let (selectedBank, _) = Recoil.useRecoilState(userBank)
-  let setFieldComplete = Recoil.useSetRecoilState(fieldsComplete)
+  let fullName = Jotai.useAtomValue(userFullName)
+  let email = Jotai.useAtomValue(userEmailAddress)
+  let currency = Jotai.useAtomValue(userCurrency)
+  let country = Jotai.useAtomValue(userCountry)
+  let selectedBank = Jotai.useAtomValue(userBank)
+  let setFieldComplete = Jotai.useSetAtom(fieldsComplete)
   let cleanPhoneNumber = str => str->String.replaceRegExp(%re("/\s/g"), "")
 
   let (requiredFieldsBody, setRequiredFieldsBody) = React.useState(_ => Dict.make())
-  let areRequiredFieldsValid = Recoil.useRecoilValueFromAtom(areRequiredFieldsValid)
-  let areRequiredFieldsEmpty = Recoil.useRecoilValueFromAtom(areRequiredFieldsEmpty)
+  let areRequiredFieldsValid = Jotai.useAtomValue(areRequiredFieldsValid)
+  let areRequiredFieldsEmpty = Jotai.useAtomValue(areRequiredFieldsEmpty)
   let countryList = CountryStateDataRefs.countryDataRef.contents
 
   React.useEffect(() => {
@@ -48,11 +51,25 @@ let make = (~paymentMethodName: string) => {
 
   let empty = areRequiredFieldsEmpty
 
+  let saveDetails = CustomPaymentMethodsConfig.useSaveDetailsCheckbox(
+    ~paymentMethod=paymentMethodDetails.methodType,
+    ~paymentMethodType=paymentMethodName,
+  )
+
+  // Saveable PMs: acceptance rides on the checkbox when it is shown, or on
+  // the global alwaysSendCustomerAcceptance flag. Non-saveable PMs: never.
+  let shouldSendCustomerAcceptance = switch saveDetails.acceptance {
+  | Some(Supported) | Some(PartiallySupported) =>
+    saveDetails.alwaysSendCustomerAcceptance || (saveDetails.isShow && saveDetails.isChecked)
+  | Some(Unsupported) | None => false
+  }
+
   UtilityHooks.useHandlePostMessages(
     ~complete=areRequiredFieldsValid,
     ~empty,
     ~paymentType=paymentMethodDetails.paymentMethodName,
   )
+  SubscriptionEventHooks.useEmitFormStatus(~empty, ~complete=areRequiredFieldsValid)
 
   let submitCallback = React.useCallback((ev: Window.event) => {
     let json = ev.data->safeParse
@@ -70,6 +87,7 @@ let make = (~paymentMethodName: string) => {
           ->Array.filter(item => item.displayName == selectedBank)
           ->Array.get(0)
           ->Option.getOr(Bank.defaultBank)
+
         let body =
           PaymentBody.getPaymentBody(
             ~paymentMethod=paymentMethodDetails.methodType,
@@ -77,13 +95,17 @@ let make = (~paymentMethodName: string) => {
             ~country=countryCode.isoAlpha2,
             ~fullName=fullName.value,
             ~email=email.value,
-            ~bank=bank.hyperSwitch,
+            ~bank=bank.value,
             ~blikCode=blikCode.value->removeHyphen,
             ~phoneNumber=cleanPhoneNumber(
               phoneNumber.countryCode->Option.getOr("") ++ phoneNumber.value,
             ),
             ~paymentExperience=paymentFlow,
-          )->mergeAndFlattenToTuples(requiredFieldsBody)
+          )
+          ->Array.concat(shouldSendCustomerAcceptance
+            ? [("customer_acceptance", PaymentBody.customerAcceptanceBody)]
+            : [])
+          ->mergeAndFlattenToTuples(requiredFieldsBody)
 
         intent(
           ~bodyArr=body,
@@ -108,15 +130,25 @@ let make = (~paymentMethodName: string) => {
     currency,
     requiredFieldsBody,
     areRequiredFieldsValid,
+    sdkAuthorization,
+    shouldSendCustomerAcceptance,
   ))
-  useSubmitPaymentData(submitCallback)
+  PaymentMessageHooks.useSubmitPaymentData(submitCallback)
+  let paymentMethod = paymentMethodDetails.methodType
+
   <div
     className="DynamicFields flex flex-col animate-slowShow"
     style={gridGap: themeObj.spacingGridColumn}>
-    <DynamicFields
-      paymentMethod=paymentMethodDetails.methodType
-      paymentMethodType=paymentMethodName
-      setRequiredFieldsBody
+    <RenderIf condition={layoutClass.\"type" === Accordion}>
+      <Space height="0" />
+    </RenderIf>
+    <DynamicFields paymentMethod paymentMethodType=paymentMethodName setRequiredFieldsBody />
+    <Terms
+      paymentMethodType={PaymentUtils.getPaymentMethodName(
+        ~paymentMethodType=paymentMethod,
+        ~paymentMethodName,
+      )}
+      paymentMethod
     />
   </div>
 }

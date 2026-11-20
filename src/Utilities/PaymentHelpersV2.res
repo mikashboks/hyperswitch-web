@@ -12,12 +12,13 @@ let intentCall = (
     ~method: Fetch.method,
     ~customPodUri: option<string>=?,
     ~publishableKey: option<string>=?,
+    ~sdkAuthorization: option<string>=?,
+    ~signal: Fetch.AbortSignal.t=?,
   ) => promise<Fetch.Response.t>,
   ~uri,
   ~headers,
   ~bodyStr,
   ~confirmParam: ConfirmType.confirmParams,
-  ~clientSecret,
   ~optLogger,
   ~handleUserError,
   ~paymentType,
@@ -45,7 +46,6 @@ let intentCall = (
   )
   ->then(res => {
     let url = makeUrl(confirmParam.return_url)
-    url.searchParams.set("client_secret", clientSecret)
     url.searchParams.set("status", "failed")
     messageParentWindow([("confirmParams", confirmParam->anyTypeToJson)])
 
@@ -74,7 +74,7 @@ let intentCall = (
             let dict = data->getDictFromJson
             let errorObj = PaymentError.itemToObjMapper(dict)
             if !isPaymentSession {
-              PaymentHelpers.closePaymentLoaderIfAny()
+              closePaymentLoaderIfAny()
               postFailedSubmitResponse(
                 ~errortype=errorObj.error.type_,
                 ~message=errorObj.error.message,
@@ -97,7 +97,7 @@ let intentCall = (
           (resolve, _) => {
             let _exceptionMessage = err->formatException
             if !isPaymentSession {
-              PaymentHelpers.closePaymentLoaderIfAny()
+              closePaymentLoaderIfAny()
               postFailedSubmitResponse(~errortype="server_error", ~message="Something went wrong")
             }
             if handleUserError {
@@ -125,7 +125,6 @@ let intentCall = (
             }
 
             let url = makeUrl(confirmParam.return_url)
-            url.searchParams.set("client_secret", clientSecret)
             url.searchParams.set("status", intent.authenticationDetails.status)
 
             let handleProcessingStatus = (paymentType, sdkHandleOneClickConfirmPayment) => {
@@ -138,7 +137,7 @@ let intentCall = (
                   if isCallbackUsedVal->Option.getOr(false) {
                     handleOnCompleteDoThisMessage()
                   } else {
-                    PaymentHelpers.closePaymentLoaderIfAny()
+                    closePaymentLoaderIfAny()
                   }
 
                   postSubmitResponse(~jsonData=data, ~url=url.href)
@@ -153,7 +152,7 @@ let intentCall = (
                 }
               | _ =>
                 if isCallbackUsedVal->Option.getOr(false) {
-                  PaymentHelpers.closePaymentLoaderIfAny()
+                  closePaymentLoaderIfAny()
                   handleOnCompleteDoThisMessage()
                 } else {
                   handleOpenUrl(url.href)
@@ -214,6 +213,7 @@ let intentCall = (
               }
               handleProcessingStatus(paymentType, sdkHandleOneClickConfirmPayment)
             } else {
+              handleProcessingStatus(paymentType, sdkHandleOneClickConfirmPayment)
               handleLogging(
                 ~optLogger,
                 ~value="succeeded",
@@ -221,7 +221,6 @@ let intentCall = (
                 ~paymentMethod,
               )
               url.searchParams.set("status", "succeeded")
-              handleOpenUrl(url.href)
             }
           },
         )->then(resolve)
@@ -232,12 +231,11 @@ let intentCall = (
     Promise.make((resolve, _) => {
       try {
         let url = makeUrl(confirmParam.return_url)
-        url.searchParams.set("client_secret", clientSecret)
         url.searchParams.set("status", "failed")
         let _exceptionMessage = err->formatException
 
         if !isPaymentSession {
-          PaymentHelpers.closePaymentLoaderIfAny()
+          closePaymentLoaderIfAny()
           postFailedSubmitResponse(~errortype="server_error", ~message="Something went wrong")
         }
         if handleUserError {
@@ -266,19 +264,38 @@ let intentCall = (
 
 let fetchPaymentManagementList = (
   ~pmSessionId,
-  ~pmClientSecret,
-  ~publishableKey,
-  ~profileId,
   ~endpoint,
   ~optLogger as _,
   ~customPodUri,
+  ~sdkAuthorization,
 ) => {
   open Promise
-  let headers = [
-    ("x-profile-id", `${profileId}`),
-    ("Authorization", `publishable-key=${publishableKey},client-secret=${pmClientSecret}`),
-  ]
-  let uri = `${endpoint}/v2/payment-methods-session/${pmSessionId}/list-payment-methods`
+  let headers = [("Authorization", sdkAuthorization)]
+  let uri = `${endpoint}/v1/payment-method-sessions/${pmSessionId}/list-payment-methods`
+
+  fetchApi(uri, ~method=#GET, ~headers=headers->ApiEndpoint.addCustomPodHeader(~customPodUri))
+  ->then(res => {
+    if !(res->Fetch.Response.ok) {
+      res
+      ->Fetch.Response.json
+      ->then(_ => {
+        JSON.Encode.null->resolve
+      })
+    } else {
+      res->Fetch.Response.json
+    }
+  })
+  ->catch(err => {
+    let exceptionMessage = err->formatException
+    Console.error2("Error ", exceptionMessage)
+    JSON.Encode.null->resolve
+  })
+}
+
+let retrievePaymentMethodSession = (~pmSessionId, ~endpoint, ~customPodUri, ~sdkAuthorization) => {
+  open Promise
+  let headers = [("Authorization", sdkAuthorization)]
+  let uri = `${endpoint}/v1/payment-method-sessions/${pmSessionId}`
 
   fetchApi(uri, ~method=#GET, ~headers=headers->ApiEndpoint.addCustomPodHeader(~customPodUri))
   ->then(res => {
@@ -300,26 +317,21 @@ let fetchPaymentManagementList = (
 }
 
 let deletePaymentMethodV2 = (
-  ~pmClientSecret,
-  ~publishableKey,
-  ~profileId,
-  ~paymentMethodId,
+  ~paymentMethodToken,
   ~pmSessionId,
   ~logger as _,
   ~customPodUri,
+  ~sdkAuthorization,
 ) => {
   open Promise
   let endpoint = ApiEndpoint.getApiEndPoint()
-  let headers = [
-    ("x-profile-id", `${profileId}`),
-    ("Authorization", `publishable-key=${publishableKey},client-secret=${pmClientSecret}`),
-  ]
-  let uri = `${endpoint}/v2/payment-methods-session/${pmSessionId}`
+  let headers = [("Authorization", sdkAuthorization)]
+  let uri = `${endpoint}/v1/payment-method-sessions/${pmSessionId}`
   fetchApi(
     uri,
     ~method=#DELETE,
     ~headers=headers->ApiEndpoint.addCustomPodHeader(~customPodUri),
-    ~bodyStr=[("payment_method_id", paymentMethodId->JSON.Encode.string)]
+    ~bodyStr=[("payment_method_token", paymentMethodToken->JSON.Encode.string)]
     ->getJsonFromArrayOfJson
     ->JSON.stringify,
   )
@@ -343,21 +355,15 @@ let deletePaymentMethodV2 = (
 
 let updatePaymentMethod = (
   ~bodyArr,
-  ~pmClientSecret,
-  ~publishableKey,
-  ~profileId,
   ~pmSessionId,
   ~logger as _,
   ~customPodUri,
+  ~sdkAuthorization,
 ) => {
   open Promise
   let endpoint = ApiEndpoint.getApiEndPoint()
-  let headers = [
-    ("x-profile-id", `${profileId}`),
-    ("Authorization", `publishable-key=${publishableKey},client-secret=${pmClientSecret}`),
-    ("Content-Type", "application/json"),
-  ]
-  let uri = `${endpoint}/v2/payment-methods-session/${pmSessionId}/update-saved-payment-method`
+  let headers = [("Authorization", sdkAuthorization)]
+  let uri = `${endpoint}/v1/payment-method-sessions/${pmSessionId}/update-saved-payment-method`
 
   fetchApi(
     uri,
@@ -383,79 +389,30 @@ let updatePaymentMethod = (
   })
 }
 
-let savePaymentMethod = (
-  ~bodyArr,
-  ~pmSessionId,
-  ~pmClientSecret,
-  ~publishableKey,
-  ~profileId,
-  ~logger as _,
-  ~customPodUri,
-) => {
-  open Promise
-  let endpoint = ApiEndpoint.getApiEndPoint()
-  let headers = [
-    ("x-profile-id", `${profileId}`),
-    ("Content-Type", "application/json"),
-    ("Authorization", `publishable-key=${publishableKey},client-secret=${pmClientSecret}`),
-  ]
-  let uri = `${endpoint}/v2/payment-methods-session/${pmSessionId}/confirm`
-  fetchApi(
-    uri,
-    ~method=#POST,
-    ~bodyStr=bodyArr->getJsonFromArrayOfJson->JSON.stringify,
-    ~headers=headers->ApiEndpoint.addCustomPodHeader(~customPodUri),
-  )
-  ->then(resp => {
-    if !(resp->Fetch.Response.ok) {
-      resp
-      ->Fetch.Response.json
-      ->then(_ => {
-        JSON.Encode.null->resolve
-      })
-    } else {
-      Fetch.Response.json(resp)
-    }
-  })
-  ->catch(err => {
-    let exceptionMessage = err->formatException
-    Console.error2("Error ", exceptionMessage)
-    JSON.Encode.null->resolve
-  })
-}
-
 let useSaveCard = (optLogger: option<HyperLoggerTypes.loggerMake>, paymentType: payment) => {
-  open RecoilAtoms
-  let paymentManagementList = Recoil.useRecoilValueFromAtom(RecoilAtomsV2.paymentManagementList)
-  let {config} = Recoil.useRecoilValueFromAtom(configAtom)
-  let keys = Recoil.useRecoilValueFromAtom(keys)
-  let customPodUri = Recoil.useRecoilValueFromAtom(customPodUri)
-  let isCallbackUsedVal = Recoil.useRecoilValueFromAtom(RecoilAtoms.isCompleteCallbackUsed)
-  let redirectionFlags = Recoil.useRecoilValueFromAtom(redirectionFlagsAtom)
+  open JotaiAtoms
+  let paymentManagementList = Jotai.useAtomValue(JotaiAtomsV2.paymentManagementList)
+  let keys = Jotai.useAtomValue(keys)
+  let {sdkAuthorization} = keys
+  let customPodUri = Jotai.useAtomValue(customPodUri)
+  let isCallbackUsedVal = Jotai.useAtomValue(JotaiAtoms.isCompleteCallbackUsed)
+  let redirectionFlags = Jotai.useAtomValue(redirectionFlagsAtom)
   (
     ~handleUserError=false,
     ~bodyArr: array<(string, JSON.t)>,
     ~confirmParam: ConfirmType.confirmParams,
   ) => {
-    switch keys.pmClientSecret {
-    | Some(pmClientSecret) =>
-      let pmSessionId = keys.pmSessionId->Option.getOr("")
-      let headers = [
-        ("Content-Type", "application/json"),
-        (
-          "Authorization",
-          `publishable-key=${keys.publishableKey},client-secret=${config.pmClientSecret}`,
-        ),
-        ("x-profile-id", keys.profileId),
-      ]
+    switch keys.pmSessionId {
+    | Some(pmSessionId) =>
+      let headers = [("Authorization", sdkAuthorization->Option.getOr(""))]
       let endpoint = ApiEndpoint.getApiEndPoint(~publishableKey=confirmParam.publishableKey)
-      let uri = `${endpoint}/v2/payment-methods-session/${pmSessionId}/confirm`
+      let uri = `${endpoint}/v1/payment-method-sessions/${pmSessionId}/confirm`
 
       let browserInfo = BrowserSpec.broswerInfo
       let returnUrlArr = [("return_url", confirmParam.return_url->JSON.Encode.string)]
       let bodyStr =
-        [("client_secret", pmClientSecret->JSON.Encode.string)]
-        ->Array.concatMany([bodyArr, browserInfo(), returnUrlArr])
+        bodyArr
+        ->Array.concatMany([browserInfo(), returnUrlArr])
         ->getJsonFromArrayOfJson
         ->JSON.stringify
 
@@ -466,7 +423,6 @@ let useSaveCard = (optLogger: option<HyperLoggerTypes.loggerMake>, paymentType: 
           ~headers,
           ~bodyStr,
           ~confirmParam: ConfirmType.confirmParams,
-          ~clientSecret=pmClientSecret,
           ~optLogger,
           ~handleUserError,
           ~paymentType,
@@ -484,90 +440,82 @@ let useSaveCard = (optLogger: option<HyperLoggerTypes.loggerMake>, paymentType: 
       }
     | None =>
       postFailedSubmitResponse(
-        ~errortype="confirms_payment_failed",
+        ~errortype="confirm_payment_failed",
         ~message="Payment failed. Try again!",
       )
     }
   }
 }
 
-let fetchPaymentMethodList = (
-  ~clientSecret,
-  ~paymentId,
-  ~publishableKey,
-  ~logger as _,
-  ~customPodUri,
-  ~endpoint,
-  ~profileId,
-) => {
-  open Promise
-  let baseHeaders = [
-    ("Content-Type", "application/json"),
-    ("x-profile-id", profileId),
-    ("Authorization", `publishable-key=${publishableKey},client-secret=${clientSecret}`),
-  ]
+let useUpdateCard = (optLogger: option<HyperLoggerTypes.loggerMake>, paymentType: payment) => {
+  open JotaiAtoms
+  let paymentManagementList = Jotai.useAtomValue(JotaiAtomsV2.paymentManagementList)
+  let keys = Jotai.useAtomValue(keys)
+  let {sdkAuthorization} = keys
+  let customPodUri = Jotai.useAtomValue(customPodUri)
+  let isCallbackUsedVal = Jotai.useAtomValue(JotaiAtoms.isCompleteCallbackUsed)
+  let redirectionFlags = Jotai.useAtomValue(redirectionFlagsAtom)
+  (
+    ~handleUserError=false,
+    ~bodyArr: array<(string, JSON.t)>,
+    ~confirmParam: ConfirmType.confirmParams,
+  ) => {
+    switch keys.pmSessionId {
+    | Some(pmSessionId) =>
+      let headers = [("Authorization", sdkAuthorization->Option.getOr(""))]
+      let endpoint = ApiEndpoint.getApiEndPoint(~publishableKey=confirmParam.publishableKey)
+      let uri = `${endpoint}/v1/payment-method-sessions/${pmSessionId}/update-saved-payment-method`
 
-  let headers = switch customPodUri {
-  | value if value != "" => [...baseHeaders, ("x-feature", value)]
-  | _ => baseHeaders
-  }
-  let uri = `${endpoint}/v2/payments/${paymentId}/payment-methods`
+      let browserInfo = BrowserSpec.broswerInfo
+      let returnUrlArr = [("return_url", confirmParam.return_url->JSON.Encode.string)]
+      let bodyStr =
+        bodyArr
+        ->Array.concatMany([browserInfo(), returnUrlArr])
+        ->getJsonFromArrayOfJson
+        ->JSON.stringify
 
-  fetchApi(uri, ~method=#GET, ~headers=headers->ApiEndpoint.addCustomPodHeader(~customPodUri))
-  ->then(resp => {
-    if !(resp->Fetch.Response.ok) {
-      resp
-      ->Fetch.Response.json
-      ->then(_ => {
-        JSON.Encode.null->resolve
-      })
-    } else {
-      Fetch.Response.json(resp)
+      let updateCard = () => {
+        intentCall(
+          ~fetchApi,
+          ~uri,
+          ~headers,
+          ~bodyStr,
+          ~confirmParam: ConfirmType.confirmParams,
+          ~optLogger,
+          ~handleUserError,
+          ~paymentType,
+          ~fetchMethod=#PUT,
+          ~customPodUri,
+          ~sdkHandleOneClickConfirmPayment=keys.sdkHandleOneClickConfirmPayment,
+          ~isCallbackUsedVal,
+          ~redirectionFlags,
+        )->ignore
+      }
+
+      switch paymentManagementList {
+      | LoadedV2(_) => updateCard()
+      | _ => ()
+      }
+    | None =>
+      postFailedSubmitResponse(
+        ~errortype="confirm_payment_failed",
+        ~message="Payment failed. Try again!",
+      )
     }
-  })
-  ->catch(err => {
-    let exceptionMessage = err->formatException
-    Console.error2("Error ", exceptionMessage)
-    JSON.Encode.null->resolve
-  })
+  }
 }
 
-let fetchSessions = (
-  ~clientSecret,
-  ~publishableKey,
-  ~paymentId,
-  ~wallets=[],
-  ~isDelayedSessionToken=false,
-  ~optLogger as _,
-  ~customPodUri,
-  ~endpoint,
-  ~profileId,
-) => {
+let savePaymentMethod = (~bodyArr, ~pmSessionId, ~sdkAuthorization, ~logger as _) => {
   open Promise
-  let baseHeaders = [
-    ("Content-Type", "application/json"),
-    ("x-profile-id", profileId),
-    ("Authorization", `publishable-key=${publishableKey},client-secret=${clientSecret}`),
-  ]
+  let endpoint = ApiEndpoint.getApiEndPoint()
+  let headers = [("Authorization", sdkAuthorization)]
+  let uri = `${endpoint}/v1/payment-method-sessions/${pmSessionId}/confirm`
 
-  let headers = switch customPodUri {
-  | value if value != "" => [...baseHeaders, ("x-feature", value)]
-  | _ => baseHeaders
-  }
-  let paymentIntentID = clientSecret->Utils.getPaymentId
-  let body =
-    [
-      ("payment_id", paymentIntentID->JSON.Encode.string),
-      ("client_secret", clientSecret->JSON.Encode.string),
-      ("wallets", wallets->JSON.Encode.array),
-      ("delayed_session_token", isDelayedSessionToken->JSON.Encode.bool),
-    ]->getJsonFromArrayOfJson
-  let uri = `${endpoint}/v2/payments/${paymentId}/create-external-sdk-tokens`
   fetchApi(
     uri,
     ~method=#POST,
-    ~bodyStr=body->JSON.stringify,
-    ~headers=headers->ApiEndpoint.addCustomPodHeader(~customPodUri),
+    ~bodyStr=bodyArr->getJsonFromArrayOfJson->JSON.stringify,
+    ~headers=headers->ApiEndpoint.addCustomPodHeader(~customPodUri=""),
   )
   ->then(resp => {
     if !(resp->Fetch.Response.ok) {

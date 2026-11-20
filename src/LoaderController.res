@@ -1,32 +1,42 @@
 open Utils
-@get external messageSource: Window.event => Window.window = "source"
-let acceptsCustomerBindingMessage = event => messageSource(event) == Window.windowParent
 @react.component
 let make = (~children, ~paymentMode, ~setIntegrateErrorError, ~logger, ~initTimestamp) => {
-  open RecoilAtoms
-  open RecoilAtomsV2
+  open JotaiAtoms
+  open JotaiAtomsV2
 
-  let (configAtom, setConfig) = Recoil.useRecoilState(configAtom)
-  let (keys, setKeys) = Recoil.useRecoilState(keys)
-  let (paymentMethodList, setPaymentMethodList) = Recoil.useRecoilState(paymentMethodList)
-  let (_, setSessions) = Recoil.useRecoilState(sessions)
-  let (options, setOptions) = Recoil.useRecoilState(elementOptions)
-  let (optionsPayment, setOptionsPayment) = Recoil.useRecoilState(optionAtom)
-  let setPaymentManagementList = Recoil.useSetRecoilState(paymentManagementList)
-  let setPaymentMethodsListV2 = Recoil.useSetRecoilState(paymentMethodsListV2)
-  let setSessionId = Recoil.useSetRecoilState(sessionId)
-  let setBlockConfirm = Recoil.useSetRecoilState(isConfirmBlocked)
-  let setCustomPodUri = Recoil.useSetRecoilState(customPodUri)
-  let setIsGooglePayReady = Recoil.useSetRecoilState(isGooglePayReady)
-  let setIsApplePayReady = Recoil.useSetRecoilState(isApplePayReady)
-  let setIsSamsungPayReady = Recoil.useSetRecoilState(isSamsungPayReady)
-  let setUpdateSession = Recoil.useSetRecoilState(updateSession)
+  let (configAtom, setConfig) = Jotai.useAtom(configAtom)
+  let setIsConfigReady = Jotai.useSetAtom(isConfigReady)
+  let (keys, setKeys) = Jotai.useAtom(keys)
+  let parentOriginRef = React.useRef(None)
+  let (paymentMethodList, setPaymentMethodList) = Jotai.useAtom(paymentMethodList)
+  let setSdkConfigs = Jotai.useSetAtom(sdkConfigs)
+  let setSdkConfigsValue = Jotai.useSetAtom(PaymentUtils.sdkConfigsValue)
+  let setSessions = Jotai.useSetAtom(sessions)
+  let (options, setOptions) = Jotai.useAtom(elementOptions)
+  let (optionsPayment, setOptionsPayment) = Jotai.useAtom(optionAtom)
+  let setPaymentManagementList = Jotai.useSetAtom(paymentManagementList)
+  let setSessionId = Jotai.useSetAtom(sessionId)
+  let setBlockConfirm = Jotai.useSetAtom(isConfirmBlocked)
+  let setCustomPodUri = Jotai.useSetAtom(customPodUri)
+  let setIsGooglePayReady = Jotai.useSetAtom(isGooglePayReady)
+  let setTrustPayScriptStatus = Jotai.useSetAtom(trustPayScriptStatus)
+  let setIsApplePayReady = Jotai.useSetAtom(isApplePayReady)
+  let setIsSamsungPayReady = Jotai.useSetAtom(isSamsungPayReady)
+  let setUpdateSession = Jotai.useSetAtom(updateSession)
+  let setIsUpdateIntentLoading = Jotai.useSetAtom(isUpdateIntentLoading)
+  let setCardBrandIconOverride = Jotai.useSetAtom(cardBrandIconOverride)
+  let setCvcIconOverride = Jotai.useSetAtom(cvcIconOverride)
+  let setCardNumberPlaceholder = Jotai.useSetAtom(cardNumberPlaceholder)
+  let setCardExpiryPlaceholder = Jotai.useSetAtom(cardExpiryPlaceholder)
+  let setCardCvcPlaceholder = Jotai.useSetAtom(cardCvcPlaceholder)
   let (divH, setDivH) = React.useState(_ => 0.0)
   let (launchTime, setLaunchTime) = React.useState(_ => 0.0)
-  let {showCardFormByDefault, paymentMethodOrder} = optionsPayment
-  let (_, setPaymentMethodCollectOptions) = Recoil.useRecoilState(paymentMethodCollectOptionAtom)
+  let {paymentMethodOrder} = optionsPayment
+  let setPaymentMethodCollectOptions = Jotai.useSetAtom(paymentMethodCollectOptionAtom)
   let url = RescriptReactRouter.useUrl()
   let componentName = CardUtils.getQueryParamsDictforKey(url.search, "componentName")
+  let isPaymentMethodsSDKSurface = componentName == "paymentMethodsSDK"
+  let fieldName = CardUtils.getQueryParamsDictforKey(url.search, "fieldName")
 
   let divRef = React.useRef(Nullable.null)
 
@@ -35,19 +45,27 @@ let make = (~children, ~paymentMode, ~setIntegrateErrorError, ~logger, ~initTime
 
   let messageParentWindow = data => messageParentWindow(data, ~targetOrigin=keys.parentURL)
 
-  let setUserFullName = Recoil.useLoggedSetRecoilState(userFullName, "fullName", logger)
-  let setUserEmail = Recoil.useLoggedSetRecoilState(userEmailAddress, "email", logger)
-  let setUserAddressline1 = Recoil.useLoggedSetRecoilState(userAddressline1, "line1", logger)
-  let setUserAddressline2 = Recoil.useLoggedSetRecoilState(userAddressline2, "line2", logger)
-  let setUserAddressCity = Recoil.useLoggedSetRecoilState(userAddressCity, "city", logger)
-  let setUserAddressPincode = Recoil.useLoggedSetRecoilState(userAddressPincode, "pin", logger)
-  let setUserAddressState = Recoil.useLoggedSetRecoilState(userAddressState, "state", logger)
-  let setUserAddressCountry = Recoil.useLoggedSetRecoilState(userAddressCountry, "country", logger)
-  let setCountry = Recoil.useSetRecoilState(userCountry)
-  let setIsCompleteCallbackUsed = Recoil.useSetRecoilState(isCompleteCallbackUsed)
-  let setIsPaymentButtonHandlerProvided = Recoil.useSetRecoilState(
-    isPaymentButtonHandlerProvidedAtom,
-  )
+  let setUserFullName = Jotai.useSetAtom(userFullName)
+  let setUserEmail = Jotai.useSetAtom(userEmailAddress)
+  let setUserAddressline1 = Jotai.useSetAtom(userAddressline1)
+  let setUserAddressline2 = Jotai.useSetAtom(userAddressline2)
+  let setUserAddressCity = Jotai.useSetAtom(userAddressCity)
+  let setUserAddressPincode = Jotai.useSetAtom(userAddressPincode)
+  let setUserAddressState = Jotai.useSetAtom(userAddressState)
+  let setUserAddressCountry = Jotai.useSetAtom(userAddressCountry)
+  let setCountry = Jotai.useSetAtom(userCountry)
+  let setIsCompleteCallbackUsed = Jotai.useSetAtom(isCompleteCallbackUsed)
+  let setIsPaymentButtonHandlerProvided = Jotai.useSetAtom(isPaymentButtonHandlerProvidedAtom)
+  let setIsTestMode = Jotai.useSetAtom(JotaiAtoms.isTestMode)
+  let setIsSavedCardCvcFlow = Jotai.useSetAtom(JotaiAtoms.isSavedCardCvcFlow)
+  let setCardCollectionMode = Jotai.useSetAtom(JotaiAtoms.cardCollectionMode)
+  let setCardBrand = Jotai.useSetAtom(JotaiAtoms.cardBrand)
+  let setSupportedCardBrands = Jotai.useSetAtom(JotaiAtoms.supportedCardBrands)
+  let setSavedCardBrand = Jotai.useSetAtom(JotaiAtoms.savedCardBrand)
+  let setIsBancontactCardFlow = Jotai.useSetAtom(JotaiAtoms.isBancontactCardFlow)
+  let setCardFlowType = Jotai.useSetAtom(JotaiAtoms.cardFlowType)
+  let setOptionsJson = Jotai.useSetAtom(optionsJsonAtom)
+  let setPaymentOptionsJson = Jotai.useSetAtom(paymentOptionsJsonAtom)
 
   let optionsCallback = (optionsPayment: PaymentType.options) => {
     [
@@ -87,6 +105,62 @@ let make = (~children, ~paymentMode, ~setIntegrateErrorError, ~logger, ~initTime
 
   let updateOptions = dict => {
     let optionsDict = dict->getDictFromObj("options")
+    setOptionsJson(_ => optionsDict->JSON.Encode.object)
+
+    if isPaymentMethodsSDKSurface {
+      let applyPlaceholder = (key, setter) =>
+        optionsDict
+        ->Dict.get(key)
+        ->Option.flatMap(JSON.Decode.string)
+        ->Option.forEach(value => setter(_ => Some(value)))
+      let applyIconStyle = (key, allowedList, warnPath, toStyle, setter) =>
+        optionsDict
+        ->Dict.get(key)
+        ->Option.flatMap(JSON.Decode.string)
+        ->Option.forEach(value =>
+          if allowedList->Array.some(allowed => allowed == value) {
+            setter(_ => Some(value->toStyle))
+          } else {
+            ErrorUtils.unknownPropValueWarning(value, allowedList, warnPath)
+          }
+        )
+      switch fieldName {
+      | "cardNumber" => {
+          applyIconStyle(
+            "cardBrandIcon",
+            ["standard", "hidden", "animated", "hideGeneric"],
+            "options.cardBrandIcon",
+            PaymentType.getCardBrandIconStyle,
+            setCardBrandIconOverride,
+          )
+          applyPlaceholder("placeholder", setCardNumberPlaceholder)
+        }
+      | "cardExpiry" => applyPlaceholder("placeholder", setCardExpiryPlaceholder)
+      | "cardCvc" => {
+          applyIconStyle(
+            "cvcIcon",
+            ["hidden", "default"],
+            "options.cvcIcon",
+            PaymentType.getCvcIconStyle,
+            setCvcIconOverride,
+          )
+          applyPlaceholder("placeholder", setCardCvcPlaceholder)
+        }
+      | _ => ()
+      }
+    }
+
+    switch optionsDict->Dict.get("subscriptionEvents") {
+    | Some(_) => {
+        let subscriptionEvents = SubscriptionEventTypes.getSubscriptionEvents(
+          optionsDict,
+          "subscriptionEvents",
+        )
+        setOptionsPayment(prev => {...prev, subscriptionEvents})
+      }
+    | None => ()
+    }
+
     switch paymentMode->CardThemeType.getPaymentMode {
     | CardNumberElement
     | CardExpiryElement
@@ -105,9 +179,10 @@ let make = (~children, ~paymentMode, ~setIntegrateErrorError, ~logger, ~initTime
     | PazeElement
     | ExpressCheckoutElement
     | PaymentMethodsManagement
+    | PaymentMethodsSDK
     | Payment => {
         let paymentOptions = PaymentType.itemToObjMapper(optionsDict, logger)
-        setOptionsPayment(_ => paymentOptions)
+        setOptionsPayment(prev => {...paymentOptions, subscriptionEvents: prev.subscriptionEvents})
         optionsCallback(paymentOptions)
       }
     | _ => ()
@@ -130,21 +205,20 @@ let make = (~children, ~paymentMode, ~setIntegrateErrorError, ~logger, ~initTime
       )
       let appearance =
         optionsAppearance == CardTheme.defaultAppearance ? config.appearance : optionsAppearance
-      let localeString = await CardTheme.getLocaleObject(
-        optionsLocaleString == "" ? config.locale : optionsLocaleString,
-      )
+      let requestedLocale = optionsLocaleString == "" ? config.locale : optionsLocaleString
+      let resolvedLocale = requestedLocale === "auto" ? Window.Navigator.language : requestedLocale
+      let localeString = await CardTheme.getLocaleObject(requestedLocale)
       let constantString = await CardTheme.getConstantStringsObject()
-      let _ = await S3Utils.initializeCountryData(~locale=config.locale, ~logger)
+      let _ = await S3Utils.initializeCountryData(~locale=resolvedLocale, ~logger)
       setConfig(_ => {
         config: {
           appearance,
-          locale: config.locale === "auto" ? Window.Navigator.language : config.locale,
+          locale: resolvedLocale,
           fonts: config.fonts,
           clientSecret: config.clientSecret,
-          ephemeralKey: config.ephemeralKey,
-          pmClientSecret: config.pmClientSecret,
           pmSessionId: config.pmSessionId,
           loader: config.loader,
+          sdkAuthorization: config.sdkAuthorization,
         },
         themeObj: appearance.variables,
         localeString,
@@ -154,6 +228,7 @@ let make = (~children, ~paymentMode, ~setIntegrateErrorError, ~logger, ~initTime
     } catch {
     | _ => ()
     }
+    setIsConfigReady(_ => true)
   }
 
   let updateRedirectionFlags = UtilityHooks.useUpdateRedirectionFlags()
@@ -166,8 +241,7 @@ let make = (~children, ~paymentMode, ~setIntegrateErrorError, ~logger, ~initTime
     ])
     logger.setLogInitiated()
     let updatedState: PaymentType.loadType = switch paymentMethodList {
-    | Loading =>
-      showCardFormByDefault && checkPriorityList(paymentMethodOrder) ? SemiLoaded : Loading
+    | Loading => checkPriorityList(paymentMethodOrder) ? SemiLoaded : Loading
     | x => x
     }
     let finalLoadLatency = if launchTime <= 0.0 {
@@ -210,7 +284,8 @@ let make = (~children, ~paymentMode, ~setIntegrateErrorError, ~logger, ~initTime
       generateStyleSheet("", dict, "themestyle")
     }
     switch paymentMode->CardThemeType.getPaymentMode {
-    | Payment => ()
+    | Payment
+    | PaymentMethodsSDK => ()
     | _ =>
       let styleClass = [
         ("input-base", options.style.base->getDictFromJson),
@@ -236,7 +311,52 @@ let make = (~children, ~paymentMode, ~setIntegrateErrorError, ~logger, ~initTime
       let json = ev.data->safeParse
       try {
         let dict = json->getDictFromJson
+
+        let ports = ev->MessageChannelBinding.eventPorts
+        if ports->Array.length > 0 {
+          let handshakeShaped =
+            dict->getDictIsSome("paymentElementCreate") || dict->getDictIsSome("cardFieldPort")
+          if handshakeShaped {
+            switch ports->Array.get(0) {
+            | Some(port) =>
+              let portKey = dict->getString("portKey", "")
+              if portKey !== "" {
+                SadPortRegistry.installPort(
+                  ~key=portKey,
+                  ~epoch=dict->getFloat("portEpoch", 0.0)->Float.toInt,
+                  ~port,
+                )
+              }
+            | None => ()
+            }
+          }
+        }
+
         if dict->getDictIsSome("paymentElementCreate") {
+          // Pin the browser-provided origin of the direct host, never a payload's wildcard.
+          parentOriginRef.current = Some(ev.origin)
+          dict->Dict.set("parentURL", ev.origin->JSON.Encode.string)
+          setKeys(prev =>
+            if Utils.isParentMessage(~parentOrigin=ev.origin, ev) {
+              {
+                ...prev,
+                parentURL: ev.origin,
+                customerBackendUrl: dict->getString("customerBackendUrl", dict->getString("endpoint", "")),
+                profileId: dict->getString("profileId", ""),
+                tenantId: dict->getString("tenantId", ""),
+              }
+            } else {
+              {...prev, parentURL: ev.origin}
+            }
+          )
+
+          // Set iframeId for ALL elements including individual card elements (cardNumber, cardExpiry, cardCvc)
+          if dict->getDictIsSome("iframeId") {
+            setKeys(prev => {
+              ...prev,
+              iframeId: dict->getString("iframeId", "no-element"),
+            })
+          }
           if (
             dict
             ->Dict.get("paymentElementCreate")
@@ -250,11 +370,13 @@ let make = (~children, ~paymentMode, ~setIntegrateErrorError, ~logger, ~initTime
             } else {
               let sdkSessionId = dict->getString("sdkSessionId", "no-element")
               logger.setSessionId(sdkSessionId)
+              if dict->Dict.get("loggerSource")->Option.isSome {
+                logger.setSource(dict->getString("loggerSource", "hyper_payment"))
+              }
               if GlobalVars.isInteg {
                 setBlockConfirm(_ => dict->getBool("blockConfirm", false))
               }
               setCustomPodUri(_ => dict->getString("customPodUri", ""))
-              updateOptions(dict)
               setSessionId(_ => {
                 sdkSessionId
               })
@@ -277,19 +399,19 @@ let make = (~children, ~paymentMode, ~setIntegrateErrorError, ~logger, ~initTime
               }
               if dict->getDictIsSome("paymentOptions") {
                 let paymentOptions = dict->getDictFromObj("paymentOptions")
+                setPaymentOptionsJson(_ => paymentOptions->JSON.Encode.object)
 
                 let clientSecret = getWarningString(paymentOptions, "clientSecret", "", ~logger)
-                let ephemeralKey = getWarningString(paymentOptions, "ephemeralKey", "", ~logger)
-                let pmClientSecret = getWarningString(paymentOptions, "pmClientSecret", "", ~logger)
                 let pmSessionId = getWarningString(paymentOptions, "pmSessionId", "", ~logger)
+                let sdkAuthorization = getString(paymentOptions, "sdkAuthorization", "")
                 setKeys(prev => {
                   ...prev,
                   clientSecret: Some(clientSecret),
-                  ephemeralKey,
-                  pmClientSecret,
+                  sdkAuthorization: Some(sdkAuthorization),
                   pmSessionId,
                 })
                 logger.setClientSecret(clientSecret)
+                logger.setSdkAuthorization(sdkAuthorization)
 
                 // Update top redirection atom
                 updateRedirectionFlags(paymentOptions)
@@ -324,23 +446,10 @@ let make = (~children, ~paymentMode, ~setIntegrateErrorError, ~logger, ~initTime
               [
                 ("iframeId", "no-element"->JSON.Encode.string),
                 ("publishableKey", ""->JSON.Encode.string),
-                ("profileId", ""->JSON.Encode.string),
-                ("tenantId", ""->JSON.Encode.string),
-                ("customerBackendUrl", ""->JSON.Encode.string),
                 ("paymentId", ""->JSON.Encode.string),
-                ("parentURL", "*"->JSON.Encode.string),
                 ("sdkHandleOneClickConfirmPayment", true->JSON.Encode.bool),
               ]->Array.forEach(keyPair => {
-                let (key, _) = keyPair
-
-                // Bind new capability-routing context only from the embedding
-                // parent. Other legacy message fields keep their existing path.
-                if (
-                  (key != "tenantId" && key != "customerBackendUrl") ||
-                    acceptsCustomerBindingMessage(ev)
-                ) {
-                  dict->CommonHooks.updateKeys(keyPair, setKeys)
-                }
+                dict->CommonHooks.updateKeys(keyPair, setKeys)
               })
               let renderLatency = Date.now() -. initTimestamp
               logger.setLogInfo(
@@ -348,22 +457,23 @@ let make = (~children, ~paymentMode, ~setIntegrateErrorError, ~logger, ~initTime
                 ~latency=renderLatency,
                 ~value="",
               )
+              updateOptions(dict)
             }
           } else if dict->getDictIsSome("paymentOptions") {
             let paymentOptions = dict->getDictFromObj("paymentOptions")
+            setPaymentOptionsJson(_ => paymentOptions->JSON.Encode.object)
 
             let clientSecret = getWarningString(paymentOptions, "clientSecret", "", ~logger)
-            let ephemeralKey = getWarningString(paymentOptions, "ephemeralKey", "", ~logger)
-            let pmClientSecret = getWarningString(paymentOptions, "pmClientSecret", "", ~logger)
             let pmSessionId = getWarningString(paymentOptions, "pmSessionId", "", ~logger)
+            let sdkAuthorization = getString(paymentOptions, "sdkAuthorization", "")
             setKeys(prev => {
               ...prev,
               clientSecret: Some(clientSecret),
-              ephemeralKey,
-              pmClientSecret,
+              sdkAuthorization: Some(sdkAuthorization),
               pmSessionId,
             })
             logger.setClientSecret(clientSecret)
+            logger.setSdkAuthorization(sdkAuthorization)
 
             // Update top redirection atom
             updateRedirectionFlags(paymentOptions)
@@ -387,11 +497,26 @@ let make = (~children, ~paymentMode, ~setIntegrateErrorError, ~logger, ~initTime
                 defaultRules: DefaultTheme.defaultRules,
               })
             }->ignore
+            if dict->getDictIsSome("options") {
+              updateOptions(dict)
+            }
           }
         } else if dict->getDictIsSome("paymentElementsUpdate") {
           updateOptions(dict)
         } else if dict->getDictIsSome("ElementsUpdate") {
+          logger.setLogInfo(~value="SDK Credentials Received from Loader", ~eventName=UPDATE_SDK)
           let optionsDict = dict->getDictFromObj("options")
+          setPaymentOptionsJson(prev => {
+            let updatedPaymentOptions = prev->getDictFromJson->Dict.copy
+            ["locale", "appearance", "clientSecret", "sdkAuthorization"]->Array.forEach(
+              key =>
+                switch optionsDict->Dict.get(key) {
+                | Some(val) => updatedPaymentOptions->Dict.set(key, val)
+                | None => ()
+                },
+            )
+            updatedPaymentOptions->JSON.Encode.object
+          })
           let clientSecret = dict->Dict.get("clientSecret")
           switch clientSecret {
           | Some(val) =>
@@ -408,25 +533,82 @@ let make = (~children, ~paymentMode, ~setIntegrateErrorError, ~logger, ~initTime
             })
           | None => ()
           }
-          switch getThemePromise(optionsDict) {
-          | Some(promise) =>
-            promise
-            ->then(res => {
-              dict->setConfigs(res)
+          let sdkAuthorization = dict->Dict.get("sdkAuthorization")
+          switch sdkAuthorization {
+          | Some(val) =>
+            setKeys(prev => {
+              ...prev,
+              sdkAuthorization: Some(val->getStringFromJson("")),
             })
-            ->catch(_ => {
+            setConfig(prev => {
+              ...prev,
+              config: {
+                ...prev.config,
+                sdkAuthorization: val->getStringFromJson(""),
+              },
+            })
+          | None => ()
+          }
+          if optionsDict->Dict.keysToArray->Array.length > 0 {
+            switch getThemePromise(optionsDict) {
+            | Some(promise) =>
+              promise
+              ->then(res => {
+                dict->setConfigs(res)
+              })
+              ->catch(_ => {
+                dict->setConfigs({
+                  default: DefaultTheme.default,
+                  defaultRules: DefaultTheme.defaultRules,
+                })
+              })
+
+            | None =>
               dict->setConfigs({
                 default: DefaultTheme.default,
                 defaultRules: DefaultTheme.defaultRules,
               })
-            })
+            }->ignore
+          }
+        }
+        if dict->Dict.get("isTestMode")->Option.isSome {
+          let isTestMode = dict->Utils.getBool("isTestMode", false)
+          setIsTestMode(_ => isTestMode)
+        }
 
-          | None =>
-            dict->setConfigs({
-              default: DefaultTheme.default,
-              defaultRules: DefaultTheme.defaultRules,
-            })
-          }->ignore
+        // Saved-card (return user) CVC iframe is mounted by ParentCardComponent
+        // with isSavedCardCvcFlow=true in its paymentElementCreate mount message;
+        // PaymentMethodsSDK reads this atom to render only the vault CVC field.
+        if dict->Dict.get("isSavedCardCvcFlow")->Option.isSome {
+          setIsSavedCardCvcFlow(_ => dict->Utils.getBool("isSavedCardCvcFlow", false))
+          switch dict->getString("endpoint", "") {
+          | "" => ()
+          | endpoint => ApiEndpoint.setApiEndPoint(endpoint)
+          }
+        }
+        if dict->Dict.get("cardCollectionMode")->Option.isSome {
+          setCardCollectionMode(_ =>
+            switch dict->getString("cardCollectionMode", "tokenise") {
+            | "raw" => RawEmit
+            | _ => Tokenise
+            }
+          )
+        }
+        if dict->Dict.get("savedCardBrand")->Option.isSome {
+          let savedCardBrand = dict->getString("savedCardBrand", "")->CardUtils.normalizeCardBrand
+          setCardBrand(_ => savedCardBrand)
+          setSavedCardBrand(_ => savedCardBrand)
+        }
+        if dict->Dict.get("supportedCardBrands")->Option.isSome {
+          setSupportedCardBrands(_ => Some(dict->getStrArray("supportedCardBrands")))
+        }
+        if dict->Dict.get("isBancontactCardFlow")->Option.isSome {
+          setIsBancontactCardFlow(_ => dict->Utils.getBool("isBancontactCardFlow", false))
+        }
+        if dict->Dict.get("cardFlowType")->Option.isSome {
+          setCardFlowType(_ =>
+            dict->getString("cardFlowType", "payment")->CardThemeType.getPaymentMode
+          )
         }
         if dict->getDictIsSome("sessions") {
           setSessions(_ => Loaded(dict->getJsonObjectFromDict("sessions")))
@@ -440,6 +622,16 @@ let make = (~children, ~paymentMode, ~setIntegrateErrorError, ~logger, ~initTime
           setIsGooglePayReady(_ =>
             dict->getJsonObjectFromDict("isReadyToPay")->JSON.Decode.bool->Option.getOr(false)
           )
+        }
+        if dict->getDictIsSome("trustPayScriptStatus") {
+          setTrustPayScriptStatus(_ => {
+            switch dict->getString("trustPayScriptStatus", "") {
+            | "loading" => Loading
+            | "loaded" => Loaded
+            | "failed" => Failed
+            | _ => NotLoaded
+            }
+          })
         }
         if dict->getDictIsSome("isSamsungPayReady") {
           setIsSamsungPayReady(_ => dict->getBool("isSamsungPayReady", false))
@@ -457,46 +649,24 @@ let make = (~children, ~paymentMode, ~setIntegrateErrorError, ~logger, ~initTime
             }
           }
         }
-        if dict->getDictIsSome("paymentsListV2") {
-          let paymentsListV2 = dict->getJsonObjectFromDict("paymentsListV2")
-          let listDict = paymentsListV2->getDictFromJson
 
-          let updatedState: UnifiedPaymentsTypesV2.loadstate =
-            paymentsListV2 == Dict.make()->JSON.Encode.object
-              ? LoadErrorV2(paymentsListV2)
-              : switch listDict->Dict.get("error") {
-                | Some(_) => LoadErrorV2(paymentsListV2)
-                | None =>
-                  let isNonEmptyPaymentMethodList = switch listDict->Dict.get("response") {
-                  | Some(val) =>
-                    val->getDictFromJson->getArray("payment_methods_enabled")->Array.length > 0
-                  | None => false
-                  }
-                  isNonEmptyPaymentMethodList
-                    ? listDict->UnifiedHelpersV2.createPaymentsObjArr("response")
-                    : LoadErrorV2(paymentsListV2)
-                }
-
-          let evalMethodsList = () =>
-            switch updatedState {
-            | LoadedV2(_) => Console.info("Loaded payment methods list v2")
-            | LoadErrorV2(x) =>
-              Console.error2("Error in loading payment methods list v2: ", x->JSON.stringify)
-            | _ => ()
-            }
-
-          evalMethodsList()
-
-          setPaymentMethodsListV2(_ => updatedState)
-        }
-        if dict->getDictIsSome("paymentMethodList") {
-          let paymentMethodList = dict->getJsonObjectFromDict("paymentMethodList")
-          let listDict = paymentMethodList->getDictFromJson
+        // Single clientList message carries both the merchant's enabled
+        // payment methods (payment_methods_enabled) and the customer's
+        // saved payment methods (customer_payment_methods). When the
+        // merchant disables saved payment methods, customer_payment_methods
+        // is already stripped to an empty array at the source
+        // (forwardPaymentMethodsToIframe), so this handler doesn't need its
+        // own send-side gate — it just decodes whatever arrived.
+        if dict->getDictIsSome("clientList") {
+          let clientListJson = dict->getJsonObjectFromDict("clientList")
+          let listDict = clientListJson->getDictFromJson
           if optionsPayment.business.name === "" {
             setOptionsPayment(prev => {
               ...prev,
               business: {
-                name: listDict->getString("merchant_name", ""),
+                name: listDict
+                ->getDictFromDict("intent_data")
+                ->getString("merchant_name", ""),
               },
             })
           }
@@ -505,18 +675,17 @@ let make = (~children, ~paymentMode, ~setIntegrateErrorError, ~logger, ~initTime
           } else {
             Date.now() -. launchTime
           }
-          let updatedState: PaymentType.loadType =
-            paymentMethodList == Dict.make()->JSON.Encode.object
-              ? LoadError(paymentMethodList)
-              : switch listDict->Dict.get("error") {
-                | Some(_) => LoadError(paymentMethodList)
-                | None =>
-                  let isNonEmptyPaymentMethodList =
-                    listDict->getArray("payment_methods")->Array.length > 0
-                  isNonEmptyPaymentMethodList
-                    ? Loaded(paymentMethodList)
-                    : LoadError(paymentMethodList)
-                }
+          let isClientListError =
+            clientListJson == Dict.make()->JSON.Encode.object ||
+              listDict->Dict.get("error")->Option.isSome
+
+          let updatedState: PaymentType.loadType = isClientListError
+            ? LoadError(clientListJson)
+            : {
+                let isNonEmptyPaymentMethodList =
+                  listDict->getArray("payment_methods_enabled")->Array.length > 0
+                isNonEmptyPaymentMethodList ? Loaded(clientListJson) : LoadError(clientListJson)
+              }
 
           let evalMethodsList = () =>
             switch updatedState {
@@ -535,10 +704,24 @@ let make = (~children, ~paymentMode, ~setIntegrateErrorError, ~logger, ~initTime
             | _ => ()
             }
 
+          setPaymentMethodList(_ => updatedState)
+
+          let customerPaymentMethods =
+            dict->PaymentType.createCustomerObjArrFromClientList("clientList")
+          setOptionsPayment(prev => {
+            ...prev,
+            customerPaymentMethods,
+          })
+
+          // Payment-methods-list and customer-payment-methods data both
+          // arrive together in a single clientList response, so this is
+          // evaluated once using the freshly-computed customerPaymentMethods
+          // above. Logging it once per data source (as when they arrived as
+          // two independent postMessages) would double-log this event.
           if !optionsPayment.displaySavedPaymentMethods {
             evalMethodsList()
           } else {
-            switch optionsPayment.customerPaymentMethods {
+            switch customerPaymentMethods {
             | LoadingSavedCards => ()
             | LoadedSavedCards(list, _) =>
               list->Array.length > 0
@@ -551,103 +734,46 @@ let make = (~children, ~paymentMode, ~setIntegrateErrorError, ~logger, ~initTime
             | NoResult(_) => evalMethodsList()
             }
           }
-
-          setPaymentMethodList(_ => updatedState)
-        }
-        if dict->getDictIsSome("customerPaymentMethods") {
-          let customerPaymentMethods =
-            dict->PaymentType.createCustomerObjArr("customerPaymentMethods")
-          setOptionsPayment(prev => {
-            ...prev,
-            customerPaymentMethods,
-          })
-          let finalLoadLatency = if launchTime <= 0.0 {
-            0.0
-          } else {
-            Date.now() -. launchTime
-          }
-
-          let evalMethodsList = () =>
-            switch paymentMethodList {
-            | Loaded(_) =>
-              logger.setLogInfo(
-                ~value="Loaded",
-                ~eventName=LOADER_CHANGED,
-                ~latency=finalLoadLatency,
-              )
-            | LoadError(x) =>
-              logger.setLogError(
-                ~value="LoadError: " ++ x->JSON.stringify,
-                ~eventName=LOADER_CHANGED,
-                ~latency=finalLoadLatency,
-              )
-            | _ => ()
-            }
-
-          switch optionsPayment.customerPaymentMethods {
-          | LoadingSavedCards => ()
-          | LoadedSavedCards(list, _) =>
-            if list->Array.length > 0 {
-              logger.setLogInfo(
-                ~value="Loaded",
-                ~eventName=LOADER_CHANGED,
-                ~latency=finalLoadLatency,
-              )
-            } else {
-              evalMethodsList()
-            }
-          | NoResult(_) => evalMethodsList()
-          }
-        }
-        if dict->getDictIsSome("savedPaymentMethods") {
-          let savedPaymentMethods = dict->PaymentType.createCustomerObjArr("savedPaymentMethods")
-          setOptionsPayment(prev => {
-            ...prev,
-            savedPaymentMethods,
-          })
-          let finalLoadLatency = if launchTime <= 0.0 {
-            -1.0
-          } else {
-            Date.now() -. launchTime
-          }
-
-          let evalMethodsList = () =>
-            switch paymentMethodList {
-            | Loaded(_) =>
-              logger.setLogInfo(
-                ~value="Loaded",
-                ~eventName=LOADER_CHANGED,
-                ~latency=finalLoadLatency,
-              )
-            | LoadError(x) =>
-              logger.setLogError(
-                ~value="LoadError: " ++ x->JSON.stringify,
-                ~eventName=LOADER_CHANGED,
-                ~latency=finalLoadLatency,
-              )
-
-            | _ => ()
-            }
-
-          switch optionsPayment.customerPaymentMethods {
-          | LoadingSavedCards => ()
-          | LoadedSavedCards(list, _) =>
-            if list->Array.length > 0 {
-              logger.setLogInfo(
-                ~value="Loaded",
-                ~eventName=LOADER_CHANGED,
-                ~latency=finalLoadLatency,
-              )
-            } else {
-              evalMethodsList()
-            }
-          | NoResult(_) => evalMethodsList()
-          }
         }
         if dict->getDictIsSome("paymentManagementMethods") {
           let paymentManagementMethods =
             dict->UnifiedHelpersV2.createPaymentsObjArr("paymentManagementMethods")
           setPaymentManagementList(_ => paymentManagementMethods)
+        }
+        if dict->getDictIsSome("sdkConfigs") {
+          let sdkConfigsJson = dict->getJsonObjectFromDict("sdkConfigs")
+          let sdkConfigsDict = sdkConfigsJson->getDictFromJson
+          let isSdkConfigsError =
+            sdkConfigsJson == JSON.Encode.null ||
+            sdkConfigsJson == Dict.make()->JSON.Encode.object ||
+            sdkConfigsDict->Dict.get("error")->Option.isSome
+          let updatedState: PaymentType.loadType = isSdkConfigsError
+            ? LoadError(sdkConfigsJson)
+            : Loaded(sdkConfigsJson)
+          let finalLoadLatency = if launchTime <= 0.0 {
+            0.0
+          } else {
+            Date.now() -. launchTime
+          }
+          switch updatedState {
+          | Loaded(_) =>
+            logger.setLogInfo(
+              ~value="Loaded",
+              ~eventName=SDK_CONFIGS_CALL,
+              ~latency=finalLoadLatency,
+            )
+          | LoadError(x) =>
+            logger.setLogError(
+              ~value="LoadError: " ++ x->JSON.stringify,
+              ~eventName=SDK_CONFIGS_CALL,
+              ~latency=finalLoadLatency,
+            )
+          | _ => ()
+          }
+          setSdkConfigs(_ => updatedState)
+          if !isSdkConfigsError {
+            setSdkConfigsValue(_ => sdkConfigsJson->SdkConfigParser.itemToObjMapper)
+          }
         }
         if dict->Dict.get("applePayCanMakePayments")->Option.isSome {
           setIsApplePayReady(_ => true)
@@ -655,12 +781,30 @@ let make = (~children, ~paymentMode, ~setIntegrateErrorError, ~logger, ~initTime
         if dict->Dict.get("applePaySessionObjNotPresent")->Option.isSome {
           setIsApplePayReady(prev => prev && false)
         }
+        if dict->Dict.get("updateIntentLoading")->Option.isSome {
+          let isLoading = dict->getBool("updateIntentLoading", false)
+          setIsUpdateIntentLoading(_ => isLoading)
+          if isLoading {
+            logger.setLogInfo(~value="Update Intent Loading Started", ~eventName=UPDATE_INTENT)
+          } else {
+            logger.setLogInfo(~value="Update Intent Loading Completed", ~eventName=UPDATE_INTENT)
+          }
+        }
       } catch {
       | _ => setIntegrateErrorError(_ => true)
       }
     }
-    handleMessage(handleFun, "Error in parsing sent Data")
-  }, (showCardFormByDefault, paymentMethodOrder, optionsPayment))
+    let handleHostMessage = (ev: Window.event) => {
+      let isExpectedOrigin =
+        parentOriginRef.current
+        ->Option.map(origin => ev.origin === origin)
+        ->Option.getOr(true)
+      if ev.source === iframeParent && ev.origin !== "null" && isExpectedOrigin {
+        handleFun(ev)
+      }
+    }
+    handleMessage(handleHostMessage, "Error in parsing sent Data")
+  }, (paymentMethodOrder, optionsPayment))
 
   let observer = ResizeObserver.newResizerObserver(entries => {
     entries
@@ -683,5 +827,8 @@ let make = (~children, ~paymentMode, ~setIntegrateErrorError, ~logger, ~initTime
     None
   }, (divH, iframeId))
 
-  <div ref={divRef->ReactDOM.Ref.domRef}> children </div>
+  <div ref={divRef->ReactDOM.Ref.domRef} className="relative">
+    <UpdateIntentOverlay />
+    children
+  </div>
 }

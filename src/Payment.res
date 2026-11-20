@@ -1,7 +1,7 @@
 open CardUtils
 open CardThemeType
 open CardTheme
-open RecoilAtoms
+open JotaiAtoms
 open PaymentTypeContext
 open CommonCardProps
 
@@ -11,29 +11,33 @@ let setUserError = message => {
 
 @react.component
 let make = (~paymentMode, ~integrateError, ~logger) => {
-  let {localeString} = Recoil.useRecoilValueFromAtom(configAtom)
-  let paymentKeys = Recoil.useRecoilValueFromAtom(keys)
-  let {iframeId} = paymentKeys
-  let (reviewSnapshots, setReviewSnapshot) = Recoil.useRecoilState(customerReview)
-  let customPodUri = Recoil.useRecoilValueFromAtom(customPodUri)
-  let currentReview =
-    GlobalVars.sdkVersion == V2
-      ? CustomerReview.lookup(
-          reviewSnapshots,
-          CustomerReview.key(
-            ~backendUrl=paymentKeys.customerBackendUrl,
-            ~publishableKey=paymentKeys.publishableKey,
-            ~tenantId=paymentKeys.tenantId,
-            ~customPodUri,
-            ~paymentId=paymentKeys.paymentId,
-            ~profileId=paymentKeys.profileId,
-          ),
-        )
-      : None
-  let currentReviewRef = React.useRef(currentReview)
-  currentReviewRef.current = currentReview
-  let isManualRetryEnabled = Recoil.useRecoilValueFromAtom(isManualRetryEnabled)
-  let areRequiredFieldsValid = Recoil.useRecoilValueFromAtom(areRequiredFieldsValid)
+  let {localeString} = Jotai.useAtomValue(configAtom)
+  let {iframeId, sdkAuthorization, parentURL} = Jotai.useAtomValue(keys)
+  let reviewKeys = Jotai.useAtomValue(keys)
+  let customPodUri = Jotai.useAtomValue(customPodUri)
+  let (reviewViews, setReviewViews) = Jotai.useAtom(customerReview)
+  let reviewStore = CustomerReview.useStore()
+  let reviewView =
+    CustomerReview.contextForKeys(reviewKeys, customPodUri)->Option.flatMap(context =>
+      reviewViews->Dict.get(CustomerReview.scope(context))
+    )
+  let checkReview = async () =>
+    switch reviewView {
+    | None => false
+    | Some(view) =>
+      switch await CustomerReview.read(view.context) {
+      | None => false
+      | Some(snapshot) =>
+        setReviewViews(previous => {
+          let next = previous->Dict.toArray->Dict.fromArray
+          next->Dict.set(snapshot.scopeKey, {...view, snapshot})
+          next
+        })
+        true
+      }
+    }
+  let isManualRetryEnabled = Jotai.useAtomValue(isManualRetryEnabled)
+  let areRequiredFieldsValid = Jotai.useAtomValue(areRequiredFieldsValid)
   let (isFocus, setIsFocus) = React.useState(_ => false)
 
   let intent = PaymentHelpers.usePaymentIntent(Some(logger), Card)
@@ -42,8 +46,22 @@ let make = (~paymentMode, ~integrateError, ~logger) => {
     paymentMode->getPaymentMode
   }, [paymentMode])
 
-  let {cardProps, expiryProps, cvcProps, zipProps, blurState} = useCardForm(~logger, ~paymentType)
-  let {isCardValid, setCardError, cardNumber, cardBrand} = cardProps
+  let {cardProps, expiryProps, cvcProps, zipProps, blurState} = useCardForm(
+    ~logger,
+    ~paymentType,
+    // The unified Card flow owns eligibility in ParentCardComponent. Keep the
+    // legacy hook enabled for the standalone card-number/expiry/CVC elements.
+    ~runEligibility=paymentType !== Card,
+  )
+  let {
+    isCardValid,
+    setCardError,
+    cardNumber,
+    cardBrand,
+    cardEligibilityError,
+    eligibilityOfferDetails,
+    isEligibilityPending,
+  } = cardProps
   let {isExpiryValid, setExpiryError, cardExpiry} = expiryProps
   let {isCVCValid, setCvcError, cvcNumber} = cvcProps
   let {isZipValid} = zipProps
@@ -57,14 +75,25 @@ let make = (~paymentMode, ~integrateError, ~logger) => {
     switch (isCardValid, isExpiryValid, isCVCValid) {
     | (Some(cardValid), Some(expiryValid), Some(cvcValid)) =>
       CardUtils.emitIsFormReadyForSubmission(
-        cardValid && expiryValid && cvcValid && areRequiredFieldsValid,
+        cardValid && expiryValid && cvcValid && areRequiredFieldsValid && !isEligibilityPending,
       )
     | _ => ()
     }
     None
-  }, (isCardValid, isExpiryValid, isCVCValid, areRequiredFieldsValid))
+  }, (isCardValid, isExpiryValid, isCVCValid, areRequiredFieldsValid, isEligibilityPending))
   let submitAPICall = (body, confirmParam) => {
-    intent(~bodyArr=body, ~confirmParam, ~handleUserError=false, ~manualRetry=isManualRetryEnabled)
+    let offerDetailsBody =
+      eligibilityOfferDetails
+      ->Option.map(offerDetails =>
+        PaymentBody.offerDetailsBody(~offerQuoteIds=offerDetails.offerQuoteIds)
+      )
+      ->Option.getOr([])
+    intent(
+      ~bodyArr=body->Array.concat(offerDetailsBody),
+      ~confirmParam,
+      ~handleUserError=false,
+      ~manualRetry=isManualRetryEnabled,
+    )
   }
 
   let submitValue = (_ev, confirmParam) => {
@@ -72,11 +101,15 @@ let make = (~paymentMode, ~integrateError, ~logger) => {
     | Card =>
       isCardValid->Option.getOr(false) &&
       isExpiryValid->Option.getOr(false) &&
-      isCVCValid->Option.getOr(false)
+      isCVCValid->Option.getOr(false) &&
+      cardEligibilityError->Option.isNone &&
+      !isEligibilityPending
     | CardNumberElement =>
       isCardValid->Option.getOr(false) &&
       checkCardCVC(getCardElementValue(iframeId, "card-cvc"), cardBrand) &&
-      checkCardExpiry(getCardElementValue(iframeId, "card-expiry"))
+      checkCardExpiry(getCardElementValue(iframeId, "card-expiry")) &&
+      cardEligibilityError->Option.isNone &&
+      !isEligibilityPending
     | _ => true
     }
     let cardNetwork = [
@@ -119,6 +152,15 @@ let make = (~paymentMode, ~integrateError, ~logger) => {
       if cardNumber === "" {
         setCardError(_ => localeString.cardNumberEmptyText)
         setUserError(localeString.enterFieldsText)
+      } else if cardEligibilityError->Option.isSome {
+        let msg = EligibilityHelpers.getCardEligibilityErrorText(
+          ~cardEligibilityError,
+          ~localeString,
+        )
+        setCardError(_ => msg)
+        setUserError(msg)
+      } else if isEligibilityPending {
+        setUserError(localeString.paymentDetailsBeingCheckedText)
       }
       if cardExpiry === "" {
         setExpiryError(_ => localeString.cardExpiryDateEmptyText)
@@ -140,10 +182,16 @@ let make = (~paymentMode, ~integrateError, ~logger) => {
       let json = ev.data->safeParse
       let jsonDict = json->getDictFromJson
       let confirm = jsonDict->ConfirmType.itemToObjMapper
-      let knownReview = currentReviewRef.current
+      let knownReview =
+        CustomerReview.contextForKeys(reviewKeys, customPodUri)->Option.flatMap(context =>
+          CustomerReview.getAtom(reviewStore, customerReview)->Dict.get(
+            CustomerReview.scope(context),
+          )
+        )
       if (
-        confirm.doSubmit ||
-        (knownReview->Option.isSome && jsonDict->getBool("oneClickDoSubmit", false))
+        Utils.isParentMessage(~parentOrigin=parentURL, ev) &&
+        (confirm.doSubmit ||
+        (knownReview->Option.isSome && jsonDict->Utils.getBool("oneClickDoSubmit", false)))
       ) {
         if knownReview->Option.isSome {
           // The nested payment-method form is no longer mounted. Complete the
@@ -155,39 +203,41 @@ let make = (~paymentMode, ~integrateError, ~logger) => {
       }
     }
     handleMessage(handleDoSubmit, "")
-  }, (cardNumber, cvcNumber, cardExpiry, isCVCValid, isExpiryValid, isCardValid, currentReview))
+  }, (
+    cardNumber,
+    cvcNumber,
+    cardExpiry,
+    isCVCValid,
+    isExpiryValid,
+    isCardValid,
+    cardEligibilityError,
+    eligibilityOfferDetails,
+    isEligibilityPending,
+    sdkAuthorization,
+    parentURL,
+    reviewKeys,
+    customPodUri,
+  ))
 
-  let checkReview = async () => {
-    switch paymentKeys.clientSecret {
-    | Some(clientSecret) =>
-      let refreshed = await CustomerReview.read({
-        backendUrl: paymentKeys.customerBackendUrl,
-        publishableKey: paymentKeys.publishableKey,
-        profileId: paymentKeys.profileId,
-        tenantId: paymentKeys.tenantId,
-        paymentId: paymentKeys.paymentId,
-        clientSecret,
-        customPodUri,
-      })
-      switch refreshed {
-      | Some(snapshot) => {
-          setReviewSnapshot(previous => CustomerReview.remember(previous, snapshot))
-          true
-        }
-      | None => false
-      }
-    | None => false
+  React.useEffect(() => {
+    // Only the payment element and cardCvc ever emit `ready`, so confirmPayment's ready-gate
+    // stalled forever for card/cardNumber/cardExpiry mounts - emit for these modes too.
+    switch paymentMode->getPaymentMode {
+    | (Card | CardNumberElement | CardExpiryElement) as mode =>
+      SubscriptionEventHooks.emitReady(
+        ~iframeId,
+        ~elementType=CardThemeType.getPaymentModeToString(mode),
+      )
+    | _ => ()
     }
-  }
-  if currentReview->Option.isSome {
-    switch currentReview {
-    | Some(snapshot) =>
-      <CustomerReviewStatus key={snapshot.scopeKey} snapshot onCheck=checkReview />
-    | None => React.null
-    }
-  } else if integrateError {
-    <ErrorOccured />
-  } else {
+    None
+  }, (iframeId, paymentMode))
+
+  switch reviewView {
+  | Some(view) =>
+    <CustomerReviewStatus key={view.snapshot.scopeKey} snapshot=view.snapshot onCheck=checkReview />
+  | None if integrateError => <ErrorOccured />
+  | None =>
     <PaymentTypeContext.provider value={paymentType: paymentType}>
       <RenderPaymentMethods
         paymentType cardProps expiryProps cvcProps zipProps handleElementFocus blurState isFocus

@@ -1,4 +1,4 @@
-let updateCardBody = (~paymentMethodId, ~nickName, ~cardHolderName) => {
+let updateCardBody = (~paymentMethodToken, ~nickName, ~cardHolderName) => {
   let cardDetails =
     [
       ("card_holder_name", cardHolderName->JSON.Encode.string),
@@ -7,9 +7,26 @@ let updateCardBody = (~paymentMethodId, ~nickName, ~cardHolderName) => {
   let paymentMethodData = [("card", cardDetails)]->Utils.getJsonFromArrayOfJson
 
   [
-    ("payment_method_id", paymentMethodId->JSON.Encode.string),
+    ("payment_method_token", paymentMethodToken->JSON.Encode.string),
     ("payment_method_data", paymentMethodData),
   ]
+}
+
+let updateCVVBody = (~paymentMethodToken, ~cvcNumber) => {
+  let cardDetails = [("card_cvc", cvcNumber->JSON.Encode.string)]->Utils.getJsonFromArrayOfJson
+  let paymentMethodData = [("card", cardDetails)]->Utils.getJsonFromArrayOfJson
+
+  [
+    ("payment_method_token", paymentMethodToken->JSON.Encode.string),
+    ("payment_method_data", paymentMethodData),
+  ]
+}
+
+let vaultUpdateCVVBody = (~cvcNumber) => {
+  let cardDetails = [("card_cvc", cvcNumber->JSON.Encode.string)]->Utils.getJsonFromArrayOfJson
+  let paymentMethodData = [("card", cardDetails)]->Utils.getJsonFromArrayOfJson
+
+  [("payment_method_data", paymentMethodData)]
 }
 
 let saveCardBody = (
@@ -22,11 +39,10 @@ let saveCardBody = (
   ~nickname="",
 ) => {
   let cardBody = [
-    ("card_number", cardNumber->CardUtils.clearSpaces->JSON.Encode.string),
+    ("card_number", cardNumber->CardValidations.clearSpaces->JSON.Encode.string),
     ("card_exp_month", month->JSON.Encode.string),
     ("card_exp_year", year->JSON.Encode.string),
     ("card_cvc", cvcNumber->JSON.Encode.string),
-    ("card_issuer", ""->JSON.Encode.string),
   ]
 
   cardHolderName
@@ -46,22 +62,5 @@ let saveCardBody = (
         ("card", cardBody->Array.concat(cardBrand)->Utils.getJsonFromArrayOfJson),
       ]->Utils.getJsonFromArrayOfJson,
     ),
-  ]
-}
-
-let vgsCardBody = (~cardNumber, ~month, ~year, ~cvcNumber) => {
-  let cardBody = [
-    ("card_number", cardNumber->JSON.Encode.string),
-    ("card_exp_month", month->JSON.Encode.string),
-    ("card_exp_year", year->JSON.Encode.string),
-    ("card_cvc", cvcNumber->JSON.Encode.string),
-  ]
-
-  let paymentMethodData = [("external_proxy_card_data", cardBody->Utils.getJsonFromArrayOfJson)]
-
-  [
-    ("payment_method_type", "card"->JSON.Encode.string),
-    ("payment_method_subtype", "debit"->JSON.Encode.string),
-    ("payment_method_data", paymentMethodData->Utils.getJsonFromArrayOfJson),
   ]
 }

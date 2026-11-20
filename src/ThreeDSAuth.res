@@ -2,6 +2,7 @@ open Utils
 
 @react.component
 let make = () => {
+  let isTrustedParent = PaymentMessageHooks.useFullscreenParentCheck()
   let (openModal, setOpenModal) = React.useState(_ => false)
   let (loader, setloader) = React.useState(_ => true)
 
@@ -23,19 +24,28 @@ let make = () => {
 
   let eventsToSendToParent = ["confirmParams", "poll_status", "openurl_if_required"]
 
-  eventsToSendToParent->UtilityHooks.useSendEventsToParent
+  let responseOrigins = React.useRef([])
+  let isTrustedChild = (ev: Window.event) =>
+    responseOrigins.current->Array.includes(ev.origin) &&
+      Window.querySelector("#threeDsAuthFrame")
+      ->Nullable.toOption
+      ->Option.map(iframe => ev.source === iframe->Window.contentWindow)
+      ->Option.getOr(false)
+  eventsToSendToParent->UtilityHooks.useSendEventsToParent(~isTrustedChild)
 
   React.useEffect0(() => {
     messageParentWindow([("iframeMountedCallback", true->JSON.Encode.bool)])
     let handle = (ev: Window.event) => {
       let json = ev.data->safeParse
       let dict = json->getDictFromJson
-      if dict->Dict.get("fullScreenIframeMounted")->Option.isSome {
+      if isTrustedParent(ev) && dict->Dict.get("fullScreenIframeMounted")->Option.isSome {
         let metadata = dict->getJsonObjectFromDict("metadata")
         let metaDataDict = metadata->JSON.Decode.object->Option.getOr(Dict.make())
         let paymentIntentId = metaDataDict->getString("paymentIntentId", "")
         let publishableKey = metaDataDict->getString("publishableKey", "")
+        let sdkAuthorization = metaDataDict->getOptionString("sdkAuthorization")
         logger.setClientSecret(paymentIntentId)
+        logger.setSdkAuthorization(sdkAuthorization->Option.getOr(""))
         logger.setMerchantId(publishableKey)
         let headersDict =
           metaDataDict
@@ -57,21 +67,27 @@ let make = () => {
           ~clientSecret=paymentIntentId,
           ~threeDsMethodComp,
           ~headers=headers->Dict.fromArray,
+          ~sdkAuthorization,
         )
         ->then(json => {
           let dict = json->getDictFromJson
           if dict->Dict.get("error")->Option.isSome {
             let errorObj = PaymentError.itemToObjMapper(dict)
-            messageParentWindow([("fullscreen", false->JSON.Encode.bool)])
             postFailedSubmitResponse(
               ~errortype=errorObj.error.type_,
               ~message=errorObj.error.message,
             )
+            closePaymentLoaderIfAny()
             JSON.Encode.null->resolve
           } else {
             let creq = dict->getString("challenge_request", "")
+            let challengeRequestKey = dict->getString("challenge_request_key", "creq")
             let transStatus = dict->getString("trans_status", "Y")
             let acsUrl = dict->getString("acs_url", "")
+            responseOrigins.current =
+              [acsUrl, threeDsAuthoriseUrl.current]->Array.filterMap(
+                PaymentMessageSecurity.originOf,
+              )
 
             let ele = Window.querySelector("#threeDsAuthDiv")
 
@@ -88,7 +104,7 @@ let make = () => {
                 setloader(_ => false)
                 let form = elem->makeForm(acsUrl, "3dsChallenge")
                 let input = Types.createElement("input")
-                input.name = "creq"
+                input.name = challengeRequestKey
                 input.value = creq
                 form.target = "threeDsAuthFrame"
                 form.appendChild(input)
@@ -112,6 +128,7 @@ let make = () => {
           )
           let errorObj = PaymentError.itemToObjMapper(dict)
           postFailedSubmitResponse(~errortype=errorObj.error.type_, ~message=errorObj.error.message)
+          closePaymentLoaderIfAny()
           JSON.Encode.null->resolve
         })
         ->ignore

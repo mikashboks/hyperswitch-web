@@ -1,6 +1,6 @@
 open PaymentMethodCollectTypes
 open PaymentMethodCollectUtils
-open RecoilAtoms
+open JotaiAtoms
 
 @react.component
 let make = (
@@ -13,13 +13,13 @@ let make = (
   ~renderAddressForm,
   ~renderPayoutMethodForm,
 ) => {
-  // Recoil states
-  let {localeString} = Recoil.useRecoilValueFromAtom(configAtom)
-  let payoutDynamicFields = Recoil.useRecoilValueFromAtom(payoutDynamicFieldsAtom)
-  let formData = Recoil.useRecoilValueFromAtom(formDataAtom)
-  let (activePmt, setActivePmt) = Recoil.useRecoilState(paymentMethodTypeAtom)
-  let (validityDict, setValidityDict) = Recoil.useRecoilState(validityDictAtom)
-  let paymentMethodListValue = Recoil.useRecoilValueFromAtom(PaymentUtils.paymentMethodListValue)
+  // Jotai state
+  let {localeString} = Jotai.useAtomValue(configAtom)
+  let payoutDynamicFields = Jotai.useAtomValue(payoutDynamicFieldsAtom)
+  let formData = Jotai.useAtomValue(formDataAtom)
+  let (activePmt, setActivePmt) = Jotai.useAtom(paymentMethodTypeAtom)
+  let (validityDict, setValidityDict) = Jotai.useAtom(validityDictAtom)
+  let paymentMethodListValue = Jotai.useAtomValue(PaymentUtils.paymentMethodListValue)
   let supportedCardBrands = React.useMemo(() => {
     paymentMethodListValue->PaymentUtils.getSupportedCardBrands
   }, [paymentMethodListValue])
@@ -162,6 +162,7 @@ let make = (
     | SelectPMType(selectedPm) => {
         let availablePmts = availablePaymentMethodTypes->Array.filterMap(pmt =>
           switch (selectedPm, pmt) {
+          | (BankRedirect, BankRedirect(bankRedirect)) => Some(BankRedirect(bankRedirect))
           | (BankTransfer, BankTransfer(transfer)) => Some(BankTransfer(transfer))
           | (Wallet, Wallet(wallet)) => Some(Wallet(wallet))
           | _ => None
@@ -197,15 +198,25 @@ let make = (
             View.setView(SelectPM)
             React.null
           }
-        | BankTransfer | Wallet =>
+        | BankRedirect | BankTransfer | Wallet =>
           <>
-            {renderHeader(localeString.formHeaderSelectBankText, true)}
+            {renderHeader(selectedPm === Wallet ? "Choose a wallet" : localeString.formHeaderSelectBankText, true)}
             <div className="mt-2.5">
               <div className="flex flex-col mt-2.5">
                 {availablePmts
                 ->Array.mapWithIndex((option, i) => {
                   switch option {
                   | Card(_) => React.null
+                  | BankRedirect(bankRedirect) =>
+                    <button
+                      key={Int.toString(i)}
+                      onClick={_ => optionSelectionHandler(option)}
+                      className="flex flex-row items-center border border-solid border-jp-gray-200 px-5 py-2.5 rounded mt-2.5 hover:bg-jp-gray-50">
+                      {bankRedirect->getBankRedirectIcon}
+                      <label className="text-start ml-2.5 cursor-pointer">
+                        {React.string(bankRedirect->String.make)}
+                      </label>
+                    </button>
                   | BankTransfer(transfer) =>
                     <button
                       key={Int.toString(i)}
@@ -223,7 +234,7 @@ let make = (
                       className="flex flex-row items-center border border-solid border-jp-gray-200 px-5 py-2.5 rounded mt-2.5 hover:bg-jp-gray-50">
                       {wallet->getWalletIcon}
                       <label className="text-start ml-2.5 cursor-pointer">
-                        {React.string(wallet->String.make)}
+                        {React.string(Wallet(wallet)->getPaymentMethodTypeLabel)}
                       </label>
                     </button>
                   }
@@ -252,7 +263,13 @@ let make = (
 
           setValidityDict(_ => fieldValidity)
           if isAddressValid {
-            View.setView(PMDForm(activePmt, payoutDynamicFields.payoutMethodData))
+            switch activePmt {
+            | Wallet(Momo) =>
+              formPaymentMethodData(formData, fieldValidity, payoutDynamicFields)
+              ->Option.map(pmd => View.setView(FinalizeView((activePmt, pmd))))
+              ->ignore
+            | _ => View.setView(PMDForm(activePmt, payoutDynamicFields.payoutMethodData))
+            }
           }
         }
         <>
@@ -308,7 +325,9 @@ let make = (
           {renderHeader(
             switch pm {
             | Card => localeString.formHeaderEnterCardText
-            | BankTransfer => key->localeString.formHeaderBankText
+            | BankRedirect
+            | BankTransfer =>
+              key->localeString.formHeaderBankText
             | Wallet => key->localeString.formHeaderWalletText
             },
             true,
@@ -372,7 +391,14 @@ let make = (
                     i->Int.toString,
                   )
                 }
-              | BillingAddress(_) => React.null
+              | BillingAddress(field) =>
+                switch (pmt, field.fieldType) {
+                | (Wallet(Momo), PhoneCountryCode) =>
+                  renderInfoTemplate("Country calling code", value, i->Int.toString)
+                | (Wallet(Momo), PhoneNumber) =>
+                  renderInfoTemplate("Recipient mobile-money number", value, i->Int.toString)
+                | _ => React.null
+                }
               }
             })
             ->React.array}

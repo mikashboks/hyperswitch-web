@@ -3,18 +3,23 @@ type contentRect = {height: float}
 
 type keys = {
   clientSecret: option<string>,
+  sdkAuthorization: option<string>,
   paymentId: string,
-  ephemeralKey?: string,
   pmSessionId?: string,
-  pmClientSecret?: string,
   publishableKey: string,
-  profileId: string,
-  tenantId: string,
-  customerBackendUrl: string,
   iframeId: string,
   parentURL: string,
   sdkHandleOneClickConfirmPayment: bool,
+  customerBackendUrl: string,
+  profileId: string,
+  tenantId: string,
 }
+
+type debounce = {
+  startDebounce: (unit => unit) => unit,
+  cancelDebounce: unit => unit,
+}
+
 @val @scope("document") external querySelector: string => Nullable.t<element> = "querySelector"
 
 type event = {\"type": string}
@@ -28,7 +33,7 @@ external addEventListener: (element, string, event => unit) => unit = "addEventL
 @send
 external removeEventListener: (element, string, event => unit) => unit = "removeEventListener"
 
-let useScript = (src: string, ~\"type"="") => {
+let useScript = (src: string, ~\"type"="", ~integrity="", ~crossorigin="") => {
   let (status, setStatus) = React.useState(_ => src != "" ? "loading" : "idle")
   React.useEffect(() => {
     if src == "" {
@@ -45,6 +50,15 @@ let useScript = (src: string, ~\"type"="") => {
       if \"type" != "" {
         script.\"type" = \"type"
       }
+
+      // Set the subresource-integrity attributes (when provided) before the
+      // element is appended so the browser enforces SRI on the fetch.
+      if crossorigin != "" {
+        script.setAttribute("crossorigin", crossorigin)
+      }
+      if integrity != "" {
+        script.setAttribute("integrity", integrity)
+      }
       script.async = true
       script.setAttribute("data-status", "loading")
       appendChild(script)
@@ -58,6 +72,10 @@ let useScript = (src: string, ~\"type"="") => {
         () => {
           script->removeEventListener("load", setAttributeFromEvent)
           script->removeEventListener("error", setAttributeFromEvent)
+
+          if script.getAttribute("data-status") !== "ready" {
+            script.remove()
+          }
         },
       )
     }
@@ -115,14 +133,6 @@ let updateKeys = (dict, keyPair, setKeys) => {
         ...prev,
         publishableKey: dict->Utils.getString(key, valueStr),
       })
-    | "customerBackendUrl" =>
-      setKeys(prev => {...prev, customerBackendUrl: dict->Utils.getString(key, valueStr)})
-    | "tenantId" => setKeys(prev => {...prev, tenantId: dict->Utils.getString(key, valueStr)})
-    | "profileId" =>
-      setKeys(prev => {
-        ...prev,
-        profileId: dict->Utils.getString(key, valueStr),
-      })
     | "paymentId" =>
       setKeys(prev => {
         ...prev,
@@ -142,14 +152,48 @@ let updateKeys = (dict, keyPair, setKeys) => {
     }
   }
 }
+
+let useDebounce = (~delayMs) => {
+  let timerRef = React.useRef(None)
+
+  let cancelDebounce = React.useCallback(() => {
+    timerRef.current->Option.forEach(clearTimeout)
+    timerRef.current = None
+  }, [])
+
+  let startDebounce = React.useCallback(callback => {
+    timerRef.current->Option.forEach(clearTimeout)
+    let timerId = setTimeout(() => {
+      timerRef.current = None
+      callback()
+    }, delayMs)
+    timerRef.current = Some(timerId)
+  }, [delayMs])
+
+  // Cleanup on unmount
+  React.useEffect0(() => {
+    Some(
+      () => {
+        timerRef.current->Option.forEach(clearTimeout)
+      },
+    )
+  })
+
+  {
+    startDebounce,
+    cancelDebounce,
+  }
+}
+
 let defaultkeys = {
   clientSecret: None,
+  sdkAuthorization: None,
   publishableKey: "",
-  profileId: "",
-  tenantId: "",
-  customerBackendUrl: "",
   paymentId: "",
   iframeId: "",
   parentURL: "*",
   sdkHandleOneClickConfirmPayment: true,
+  customerBackendUrl: "",
+  profileId: "",
+  tenantId: "",
 }
