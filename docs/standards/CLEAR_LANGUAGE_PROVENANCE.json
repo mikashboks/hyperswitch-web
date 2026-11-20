@@ -1,0 +1,10 @@
+{
+  "standardId": "MKB-CLUI",
+  "version": "1.0.0",
+  "adoptedOn": "2026-10-16",
+  "sha256": "b25ebd3ccb35009cc3ee8150398895966a25d143895e4e1cf5e6e47a6bae5261",
+  "canonicalRepository": "https://github.com/mikashboks/namk",
+  "canonicalPath": "docs/standards/CLEAR_LANGUAGE_INTERFACE_GUIDE.md",
+  "sourceRevision": "Content hash identifies this version; no commit or propagation implied.",
+  "role": "generated-snapshot"
+}
