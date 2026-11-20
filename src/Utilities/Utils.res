@@ -1070,8 +1070,13 @@ let getHeaders = (
     ("X-Client-Platform", "web"),
   ]
 
+  let hasCallerAuthorization =
+    headers->Dict.get("Authorization")->getNonEmptyOption->Option.isSome ||
+    headers->Dict.get("authorization")->getNonEmptyOption->Option.isSome
+
   let authorizationHeaders = switch sdkAuthorization->getNonEmptyOption {
   | Some(sdkAuth) => [("Authorization", sdkAuth)]
+  | None if hasCallerAuthorization => []
   | None => [("api-key", publishableKey->Option.map(key => key)->Option.getOr("invalid_key"))]
   }
 

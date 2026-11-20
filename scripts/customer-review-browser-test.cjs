@@ -66,6 +66,15 @@ async function main(){
     assert.deepEqual(reads.map(r=>r.headers.authorization),['publishable-key=pk_snd_a,client-secret=cs_a','publishable-key=pk_snd_b,client-secret=cs_b','publishable-key=pk_snd_a,client-secret=cs_a']);
     assert.deepEqual(reads.map(r=>r.headers['x-tenant-id']),['public','tenant_b','public']);
   });
+  await test('embedded v2 elements accepts cs_ clientSecret without INVALID_FORMAT error',async()=>{
+    const ok=await page.evaluate(()=>{
+      const h=window.makeHyper({publishableKey:'pk_snd_v2',profileId:'pro_v2',tenantId:'mikashbokssl'},{customBackendUrl:location.origin+'/backend-v2',isForceInit:true,isPreloadEnabled:false});
+      const els=h.elements({paymentId:'0a_pay_01926c58bc6e77c09e809964e72af8c8',clientSecret:'cs_v2_without_underscore_secret'});
+      const preMount=document.querySelector('iframe[src*="fullscreenType=preMountLoader"]');
+      return Boolean(els && typeof els.create==='function' && preMount && preMount.src.includes('endpoint='));
+    });
+    assert.equal(ok,true);
+  });
   await test('read time uses SDK locale and local time zone while preserving semantic ISO',async()=>{
     await page.evaluate(()=>window.setCustomerLocale('en-GB'));await page.evaluate(()=>window.runConfirm());
     const expected=await page.evaluate(()=>new Intl.DateTimeFormat('en-GB',{year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'}).format(new Date('2026-11-18T00:00:00Z')));

@@ -331,7 +331,13 @@ let performUpdateIntent = async (
     let response = try {
       // Get new credentials from merchant callback
       let callbackResult = await callback()
-      let newSdkAuthorization = callbackResult->getDictFromJson->getString("sdkAuthorization", "")
+      let callbackDict = callbackResult->getDictFromJson
+      let newSdkAuthorization = switch callbackDict->Dict.get("sdkAuthorization") {
+      | Some(val) =>
+        let next = val->getStringFromJson("")
+        next != "" ? next : sdkAuthorizationRef.contents
+      | None => sdkAuthorizationRef.contents
+      }
 
       // Mount new preMountLoader with new credentials (refs NOT updated yet —
       // we validate all API responses before committing any state changes).

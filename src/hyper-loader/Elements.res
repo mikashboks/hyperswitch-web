@@ -43,7 +43,7 @@ let make = (
     let localOptions = options->JSON.Decode.object->Option.getOr(Dict.make())
 
     let endpoint =
-      GlobalVars.sdkApiVersion == "v2" && localOptions->getString("sdkAuthorization", "") == ""
+      customerBackendUrl != ""
         ? customerBackendUrl
         : ApiEndpoint.getApiEndPoint(~publishableKey)
     let redirect = ref("if_required")
@@ -116,6 +116,28 @@ let make = (
     // elements() is called), the sdk-configs API call could be prefetched early in Hyper.make()
     // and the result passed in here, avoiding the round-trip through PreMountLoader.
     // Currently deferred to PreMountLoader for consistency with the other 3 pre-mount calls.
+    let preMountSdkAuthorization = {
+      let explicitPaymentId = localOptions->getString("paymentId", "")
+      let isSafe = v => v != "" && RegExp.test("^[A-Za-z0-9_-]+$"->RegExp.fromString, v)
+      if (
+        GlobalVars.sdkApiVersion == "v2" &&
+        sdkAuthorizationRef.contents == "" &&
+        publishableKey->String.startsWith("pk_") &&
+        isSafe(publishableKey) &&
+        isSafe(profileId) &&
+        isSafe(clientSecretRef.contents) &&
+        RegExp.test("^[A-Za-z0-9]{2}_pay_[A-Za-z0-9]+$"->RegExp.fromString, explicitPaymentId) &&
+        (tenantId == "" || isSafe(tenantId))
+      ) {
+        let effectiveTenant = tenantId != "" ? tenantId : "public"
+        Window.btoa(
+          `profile_id=${profileId},publishable_key=${publishableKey},client_secret=${clientSecretRef.contents},payment_id=${explicitPaymentId},tenant_id=${effectiveTenant},hosted_api=v2`,
+        )
+      } else {
+        sdkAuthorizationRef.contents
+      }
+    }
+
     let (
       initialSessionTokensPromise,
       initialSdkConfigsPromise,
@@ -129,7 +151,7 @@ let make = (
       ~isSdkParamsEnabled,
       ~selectorString=localSelectorString,
       ~currentClientSecret=clientSecretRef.contents,
-      ~currentSdkAuthorization=sdkAuthorizationRef.contents,
+      ~currentSdkAuthorization=preMountSdkAuthorization,
     )
 
     // Extract isTaxCalculationEnabled from the clientList response
@@ -361,7 +383,7 @@ let make = (
       })
     }
 
-    if !isTestMode && !hasSdkAuthorization && !clientSecretReMatch {
+    if !isTestMode && preMountSdkAuthorization === "" && !clientSecretReMatch {
       manageErrorWarning(
         INVALID_FORMAT,
         ~dynamicStr="clientSecret is expected to be in format ******_secret_*****",

@@ -92,7 +92,13 @@ function jsonResponse(data, response) {
 export async function fetchHosted(uri, init) {
   const headers = new Headers(init.headers);
   const context = contextFromHeaders(headers);
-  if (!context) return fetch(uri, init);
+  if (!context) {
+    const response = await fetch(uri, init);
+    if (response.ok && (init.method || 'GET') === 'POST' && /\/v2\/payments\/[^/]+\/confirm-intent$/.test(new URL(uri).pathname)) {
+      return jsonResponse(paymentResponse(await response.json()), response);
+    }
+    return response;
+  }
   const url = new URL(uri);
   const match = url.pathname.match(/^(.*)\/payments\/([^/]+)(?:\/(.*))?$/);
   const configMatch=url.pathname.match(/^(.*)\/v1\/sdk\/configs\/web\/sdk_config\.json$/);

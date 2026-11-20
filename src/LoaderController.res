@@ -536,16 +536,29 @@ let make = (~children, ~paymentMode, ~setIntegrateErrorError, ~logger, ~initTime
           let sdkAuthorization = dict->Dict.get("sdkAuthorization")
           switch sdkAuthorization {
           | Some(val) =>
+            let nextSdkAuth = val->getStringFromJson("")
             setKeys(prev => {
-              ...prev,
-              sdkAuthorization: Some(val->getStringFromJson("")),
+              let preserved = switch prev.sdkAuthorization {
+              | Some(existing) if existing != "" && nextSdkAuth == "" => existing
+              | _ => nextSdkAuth
+              }
+              {
+                ...prev,
+                sdkAuthorization: Some(preserved),
+              }
             })
             setConfig(prev => {
-              ...prev,
-              config: {
-                ...prev.config,
-                sdkAuthorization: val->getStringFromJson(""),
-              },
+              let preserved =
+                prev.config.sdkAuthorization != "" && nextSdkAuth == ""
+                  ? prev.config.sdkAuthorization
+                  : nextSdkAuth
+              {
+                ...prev,
+                config: {
+                  ...prev.config,
+                  sdkAuthorization: preserved,
+                },
+              }
             })
           | None => ()
           }

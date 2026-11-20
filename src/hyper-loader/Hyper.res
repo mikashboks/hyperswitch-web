@@ -612,7 +612,12 @@ let make = (keys, options: option<JSON.t>, analyticsInfo: option<JSON.t>) => {
       }
 
       let retrievePaymentIntentFn = async requested =>
-        if GlobalVars.sdkApiVersion == "v2" && sdkAuthorization.contents == "" {
+        if (
+          GlobalVars.sdkApiVersion == "v2" &&
+          sdkAuthorization.contents == "" &&
+          initializedPaymentId.contents != "" &&
+          profileId != ""
+        ) {
           await CustomerIntentRead.retrieve(
             ~backendUrl=customerBackendUrl,
             ~publishableKey,

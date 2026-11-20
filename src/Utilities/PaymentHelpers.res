@@ -4,6 +4,11 @@ open PaymentHelpersTypes
 open LoggerUtils
 open URLModule
 
+module HostedV2Confirm = {
+  @module("./HostedV2Transport.js")
+  external confirmBody: JSON.t => JSON.t = "confirmBody"
+}
+
 let getPaymentType = paymentMethodType =>
   switch paymentMethodType {
   | "apple_pay" => Applepay
@@ -1352,7 +1357,12 @@ let usePaymentIntent = (optLogger, paymentType) => {
   let setReview = Jotai.useSetAtom(customerReview)
   let reviewContext = CustomerReview.contextForKeys(keys, customPodUri)
   let sdkAuthorization = keys.sdkAuthorization->Utils.getNonEmptyOption
-  let isDirectV2 = GlobalVars.sdkApiVersion == "v2" && sdkAuthorization->Option.isNone
+  let hasExplicitV2Keys =
+    keys.paymentId != "" || keys.profileId != "" || keys.tenantId != ""
+  let isDirectV2 =
+    GlobalVars.sdkApiVersion == "v2" &&
+    sdkAuthorization->Option.isNone &&
+    hasExplicitV2Keys
   let currentReview = () =>
     reviewContext->Option.flatMap(context =>
       CustomerReview.getAtom(reviewStore, customerReview)->Dict.get(CustomerReview.scope(context))
@@ -1391,16 +1401,18 @@ let usePaymentIntent = (optLogger, paymentType) => {
       closePaymentLoaderIfAny()
       intentCallback(getFailedSubmitResponse(~errorType="payment_context_missing", ~message))
     | (None, Some(clientSecret)) =>
-      let (uri, headers, body) = if isDirectV2 {
-        let url = `${keys.customerBackendUrl}/v2/payments/${keys.paymentId}/confirm-intent`
+      let (uri, headers, body) = switch (isDirectV2, reviewContext) {
+      | (true, Some(ctx)) =>
+        let url = `${ctx.backendUrl}/v2/payments/${ctx.paymentId}/confirm-intent`
         let headers = [
-          ("Authorization", `publishable-key=${keys.publishableKey},client-secret=${clientSecret}`),
-          ("x-profile-id", keys.profileId),
-          ...keys.tenantId != "" ? [("x-tenant-id", keys.tenantId)] : [],
+          ("Authorization", `publishable-key=${ctx.publishableKey},client-secret=${ctx.clientSecret}`),
+          ("x-profile-id", ctx.profileId),
+          ...ctx.tenantId != "" ? [("x-tenant-id", ctx.tenantId)] : [],
           ...customPodUri != "" ? [("x-feature", customPodUri)] : [],
         ]
-        (url, headers, [])
-      } else {
+        let returnUrl = [("return_url", confirmParam.return_url->JSON.Encode.string)]
+        (url, headers, returnUrl)
+      | _ =>
         let paymentIntentId = Utils.getPaymentIdOrExtractFromSdkAuth(~clientSecret, ~sdkAuthorization?)
         let endpoint = ApiEndpoint.getApiEndPoint(
           ~publishableKey=confirmParam.publishableKey,
@@ -1516,6 +1528,22 @@ let usePaymentIntent = (optLogger, paymentType) => {
         }
       }
 
+      let formatConfirmBody = pairs => {
+        let json = pairs->getJsonFromArrayOfJson
+        if isDirectV2 {
+          let dict = json->getDictFromJson
+          if (
+            dict->Dict.get("payment_method")->Option.isSome &&
+            dict->Dict.get("payment_method_data")->Option.isSome
+          ) {
+            HostedV2Confirm.confirmBody(json)->JSON.stringify
+          } else {
+            json->JSON.stringify
+          }
+        } else {
+          json->JSON.stringify
+        }
+      }
       let broswerInfo = BrowserSpec.broswerInfo
       let intentWithoutMandate = mandatePaymentType => {
         let bodyStr =
@@ -1524,8 +1552,7 @@ let usePaymentIntent = (optLogger, paymentType) => {
             bodyArr->Array.concat(broswerInfo()),
             mandatePaymentType->PaymentBody.paymentTypeBody,
           ])
-          ->getJsonFromArrayOfJson
-          ->JSON.stringify
+          ->formatConfirmBody
         callIntent(bodyStr)
       }
 
@@ -1535,8 +1562,7 @@ let usePaymentIntent = (optLogger, paymentType) => {
           ->Array.concat(
             bodyArr->Array.concatMany([PaymentBody.mandateBody(mandatePaymentType), broswerInfo()]),
           )
-          ->getJsonFromArrayOfJson
-          ->JSON.stringify
+          ->formatConfirmBody
         callIntent(bodyStr)
       }
 

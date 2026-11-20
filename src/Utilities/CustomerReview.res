@@ -193,25 +193,48 @@ let remember = (snapshots, snapshot: snapshot) => {
 external hostedContext: (string, option<string>, string, string) => option<context> =
   "hostedContext"
 
+let isSafeIdentifier = value =>
+  value != "" && RegExp.test("^[A-Za-z0-9_-]+$"->RegExp.fromString, value)
+
+let normalizeBackendOrigin = value => {
+  let trimmed = value->String.trim
+  let normalized =
+    trimmed->String.endsWith("/")
+      ? trimmed->String.slice(~start=0, ~end=trimmed->String.length - 1)
+      : trimmed
+  normalized != "" &&
+  (normalized->String.startsWith("https://") || normalized->String.startsWith("http://"))
+    ? Some(normalized)
+    : None
+}
+
 let contextForKeys = (keys: CommonHooks.keys, customPodUri) =>
   switch hostedContext(keys.customerBackendUrl, keys.sdkAuthorization, keys.publishableKey, customPodUri) {
   | Some(_) as context => context
-  | None if
+  | None =>
+    switch (
       GlobalVars.sdkApiVersion == "v2" &&
       keys.sdkAuthorization->Option.getOr("") == "" &&
-      keys.customerBackendUrl != "" &&
-      keys.paymentId != "" &&
-      keys.profileId != "" =>
-    keys.clientSecret->Option.map(clientSecret => {
-      backendUrl: keys.customerBackendUrl,
-      publishableKey: keys.publishableKey,
-      profileId: keys.profileId,
-      tenantId: keys.tenantId,
-      paymentId: keys.paymentId,
-      clientSecret,
-      customPodUri,
-    })
-  | None => None
+      keys.publishableKey->String.startsWith("pk_") &&
+      isSafeIdentifier(keys.publishableKey) &&
+      isSafeIdentifier(keys.paymentId) &&
+      isSafeIdentifier(keys.profileId) &&
+      (keys.tenantId == "" || isSafeIdentifier(keys.tenantId)),
+      normalizeBackendOrigin(keys.customerBackendUrl),
+      keys.clientSecret->Option.filter(isSafeIdentifier),
+    ) {
+    | (true, Some(backendUrl), Some(clientSecret)) =>
+      Some({
+        backendUrl,
+        publishableKey: keys.publishableKey,
+        profileId: keys.profileId,
+        tenantId: keys.tenantId,
+        paymentId: keys.paymentId,
+        clientSecret,
+        customPodUri,
+      })
+    | _ => None
+    }
   }
 
 type view = {context: context, snapshot: snapshot}
