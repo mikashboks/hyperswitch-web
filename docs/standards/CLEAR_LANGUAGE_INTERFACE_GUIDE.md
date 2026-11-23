@@ -1,6 +1,6 @@
 # MiKashBoks clear-language and interface guide
 
-**Standard ID:** MKB-CLUI · **Version:** 1.0.0 · **Adopted:** 16 October 2026
+**Standard ID:** MKB-CLUI · **Version:** 1.1.0 · **Adopted:** 22 November 2026
 
 **Status:** adopted user direction for MiKashBoks design, copy, implementation and review. This is a standard, not a claim that existing screens comply or that candidate wording has been locally validated. Plain, respectful adult English is the default.
 
@@ -44,8 +44,8 @@ These terms retain the existing NAMK `docs/COPY_GLOSSARY.md` product vocabulary 
 | Total and usable savings | Total saved; To use now; Locked till {date} | Existing savings labels. “To use now” must mean the current amount actually available for the offered action, subject to shown fee/limits; separately identify reservations. A provisional “Available to withdraw” explainer may clarify. Use “Total balance” for a genuine non-savings total. |
 | Interest and earnings | interest; earnings | Earnings is an umbrella including applicable interest, rewards and referrals. Explain whether amounts are estimated, accrued, paid or withdrawable. Do not substitute “profit” for interest or imply that interest or earnings are guaranteed. |
 | Borrowing | Loan; Pay loan; You owe; Paid back | Existing terms. “Qualify” describes criteria, not approval. State principal, interest, fees, total, due dates and repayment conditions. |
-| Loan checks | loan readiness | Existing loan-side wording. Trust Level or Trust Points do not decide a loan; an estimate or check is not an offer or approval. |
-| Trust programme | Trust Level; Trust Points; Level {n} | Existing programme names. Do not describe them as a credit score or money that can be withdrawn. |
+| Loan checks | loan readiness | Existing loan-side wording. Trust Level 2 is a minimum check to apply for a loan; Trust Level and Trust Points do not set your loan score, amount, price, or approval, and an estimate or check is not an offer or approval. |
+| Trust programme | Trust Level; Trust Points; Level {n} | Existing programme names. Trust Level 2 is the minimum check to apply for a loan; do not describe Trust Level or Trust Points as a credit score, loan approval, or money that can be withdrawn. |
 | Activity | Activity | Existing history label. Explain a specific financial transaction in the detail; the technical word is not banned where its exact meaning is needed. |
 | MiKashBoks credential | MiKashBoks PIN | Qualified form of existing money PIN (shared by supported USSD/WhatsApp flows). “PIN” alone only when the provider cannot be confused. Android login password remains a different credential. |
 | Provider credential | AfriMoney PIN | Only on the verified AfriMoney approval surface. Explain the transition; never describe it as a MiKashBoks PIN. |
@@ -190,4 +190,4 @@ Local files make the standard discoverable to fresh agents on this Mac. Other ma
 | [GSMA / Orange Sierra Leone digital-skills study](https://www.gsma.com/solutions-and-impact/connectivity-for-good/mobile-for-development/wp-content/uploads/2024/10/Delivering-digital-skills-training-for-impact-Learnings-and-insights-from-Sierra-Leone.pdf) | October 2024 report; opened 16 October 2026 | Qualitative training evidence; not nationally representative, a measure of intelligence or proof of comprehension of MiKashBoks screens. |
 | NAMK copy glossary and current agent rules | Existing glossary established 10 August 2026; local files inspected 16 October | Product vocabulary, channel constraints, conservative AfriMoney evidence and internal currency-code boundaries. Source inspection is not verification of deployed behavior. |
 
-Version history: **1.0.0 — 16 October 2026:** adopted cross-project standard, portable checklist/glossary, state wording, templates, testing responsibilities and snapshot distribution. Provisional terms remain unvalidated.
+Version history: **1.0.0 — 16 October 2026:** adopted cross-project standard, portable checklist/glossary, state wording, templates, testing responsibilities and snapshot distribution. Provisional terms remain unvalidated. **1.1.0 — 22 November 2026:** clarified that Trust Level 2 is a minimum check to apply for a loan, while Trust Level and Trust Points do not set loan score, amount, price, or approval, and are not money that can be withdrawn.

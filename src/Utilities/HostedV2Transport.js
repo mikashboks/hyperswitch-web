@@ -10,7 +10,7 @@ export function contextFromHeaders(headers) {
     for (const key of ['payment_id','profile_id','publishable_key','client_secret','tenant_id']) {
       if (!/^[A-Za-z0-9_-]+$/.test(fields[key] || '')) throw Error();
     }
-    if (!/^[A-Za-z0-9]{2}_pay_[A-Za-z0-9]+$/.test(fields.payment_id)) throw Error();
+    if (!/^[A-Za-z0-9]{2}(?:[A-Za-z0-9]{3})?_pay_[A-Za-z0-9]+$/.test(fields.payment_id)) throw Error();
     if (headers.get('x-tenant-id') !== fields.tenant_id) throw Error();
   } catch {
     throw new Error('Invalid hosted checkout context');
