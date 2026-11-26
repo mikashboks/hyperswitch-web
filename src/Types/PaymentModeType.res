@@ -1,6 +1,8 @@
 type payment =
   | Klarna
   | Card
+  | MobileMoney
+  | Mikashboks
   | Sofort
   | AfterPay
   | Affirm
@@ -33,6 +35,8 @@ type payment =
 let paymentMode = str => {
   switch str {
   | "card" => Card
+  | "mobile_money" => MobileMoney
+  | "mikashboks" => Mikashboks
   | "klarna" => Klarna
   | "afterpay_clearpay" => AfterPay
   | "affirm" => Affirm
@@ -67,6 +71,8 @@ let paymentMode = str => {
 
 let defaultOrder = [
   "saved_methods",
+  "mikashboks",
+  "mobile_money",
   "card",
   "apple_pay",
   "google_pay",

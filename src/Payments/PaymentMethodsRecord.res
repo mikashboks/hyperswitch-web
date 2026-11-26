@@ -703,6 +703,103 @@ let getPaymentMethodsFields = (~localeString: LocaleStringTypes.localeStrings) =
     miniIcon: Some(icon("bank", ~size=19)),
   },
   {
+    paymentMethodName: "mobile_money",
+    icon: Some(
+      <span
+        ariaHidden=true
+        style={
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: "22px",
+          height: "22px",
+          borderRadius: "6px",
+          backgroundColor: "rgba(148, 163, 184, 0.16)",
+          color: "currentColor",
+        }>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="6" y="2" width="12" height="20" rx="2" ry="2" />
+          <line x1="12" y1="18" x2="12.01" y2="18" />
+        </svg>
+      </span>,
+    ),
+    displayName: "Mobile Money",
+    fields: [],
+    miniIcon: None,
+  },
+  {
+    paymentMethodName: "mikashboks",
+    icon: Some(
+      <span
+        ariaHidden=true
+        style={
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: "22px",
+          height: "22px",
+          borderRadius: "6px",
+          backgroundColor: "#0B3B2E",
+          color: "#34D399",
+          fontSize: "11px",
+          fontWeight: "800",
+        }>
+        {React.string("M")}
+      </span>,
+    ),
+    displayName: "MiKashBoks",
+    fields: [InfoElement],
+    miniIcon: None,
+  },
+  {
+    paymentMethodName: "orange_money",
+    icon: Some(
+      <span
+        ariaHidden=true
+        style={
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: "24px",
+          height: "19px",
+          borderRadius: "4px",
+          backgroundColor: "#FF7900",
+          color: "#111827",
+          fontSize: "9px",
+          fontWeight: "800",
+        }>
+        {React.string("OM")}
+      </span>,
+    ),
+    displayName: "Orange Money",
+    fields: [InfoElement],
+    miniIcon: None,
+  },
+  {
+    paymentMethodName: "afrimoney",
+    icon: Some(
+      <span
+        ariaHidden=true
+        style={
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: "24px",
+          height: "19px",
+          borderRadius: "4px",
+          backgroundColor: "#A61C3C",
+          color: "#FFFFFF",
+          fontSize: "9px",
+          fontWeight: "800",
+        }>
+        {React.string("AM")}
+      </span>,
+    ),
+    displayName: "AfriMoney",
+    fields: [InfoElement],
+    miniIcon: None,
+  },
+  {
     paymentMethodName: "saved_methods",
     icon: Some(icon("default-card", ~size=19)),
     fields: [],

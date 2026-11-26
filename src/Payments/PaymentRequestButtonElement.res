@@ -1,5 +1,12 @@
 type wallet =
-  GPayWallet | PaypalWallet | ApplePayWallet | KlarnaWallet | SamsungPayWallet | PazeWallet | NONE
+  | GPayWallet
+  | PaypalWallet
+  | ApplePayWallet
+  | KlarnaWallet
+  | SamsungPayWallet
+  | PazeWallet
+  | MikashboksWallet
+  | NONE
 let paymentMode = str => {
   switch str {
   | "gpay"
@@ -14,6 +21,7 @@ let paymentMode = str => {
     SamsungPayWallet
   | "klarna" => KlarnaWallet
   | "paze" => PazeWallet
+  | "mikashboks" => MikashboksWallet
   | _ => NONE
   }
 }
@@ -22,7 +30,7 @@ module WalletsSaveDetailsText = {
   @react.component
   let make = () => {
     open JotaiAtoms
-    let {isGooglePay, isApplePay, isPaypal, isSamsungPay} = Jotai.useAtomValue(
+    let {isGooglePay, isApplePay, isPaypal, isSamsungPay, isMikashboks} = Jotai.useAtomValue(
       areOneClickWalletsRendered,
     )
     let {localeString} = Jotai.useAtomValue(configAtom)
@@ -39,7 +47,7 @@ module WalletsSaveDetailsText = {
         ~paymentType=paymentMethodListValue.payment_type,
         ~alwaysSend=alwaysSendCustomerAcceptance,
       ) &&
-      (isGooglePay || isApplePay || isPaypal || isSamsungPay) &&
+      (isGooglePay || isApplePay || isPaypal || isSamsungPay || isMikashboks) &&
       walletMessageConfig.displayMode !== Hidden
 
     <RenderIf condition={shouldRender}>
@@ -208,6 +216,10 @@ let make = (~sessions, ~walletOptions) => {
                   | _ => React.null
                   }}
                 </SessionPaymentWrapper>
+              </RenderIf>
+            | MikashboksWallet =>
+              <RenderIf condition={options.wallets.mikashboks === Auto}>
+                <MikashboksExpressButton walletOptions />
               </RenderIf>
             | NONE => React.null
             }}

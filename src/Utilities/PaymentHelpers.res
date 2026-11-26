@@ -1523,7 +1523,15 @@ let usePaymentIntent = (optLogger, paymentType) => {
             intentCallback(val)
             resolve()
           })
-          ->catch(_ => resolve())
+          ->catch(_ => {
+            intentCallback(
+              getFailedSubmitResponse(
+                ~errorType="server_error",
+                ~message="We cannot confirm this payment yet. Check its status before paying again.",
+              ),
+            )
+            resolve()
+          })
           ->ignore
         }
       }
@@ -1588,25 +1596,22 @@ let usePaymentIntent = (optLogger, paymentType) => {
           | None => intentWithoutMandate(mandatePaymentType)
           }
         } else {
-          postFailedSubmitResponse(
-            ~errortype="payment_methods_empty",
-            ~message="Payment Failed. Try again!",
-          )
+          let message = "Payment Failed. Try again!"
+          postFailedSubmitResponse(~errortype="payment_methods_empty", ~message)
+          intentCallback(getFailedSubmitResponse(~errorType="payment_methods_empty", ~message))
           Console.warn("Please enable atleast one Payment method.")
         }
 
       | SemiLoaded => intentWithoutMandate("")
       | _ =>
-        postFailedSubmitResponse(
-          ~errortype="payment_methods_loading",
-          ~message="Please wait. Try again!",
-        )
+        let message = "Please wait. Try again!"
+        postFailedSubmitResponse(~errortype="payment_methods_loading", ~message)
+        intentCallback(getFailedSubmitResponse(~errorType="payment_methods_loading", ~message))
       }
     | (None, None) =>
-      postFailedSubmitResponse(
-        ~errortype="confirm_payment_failed",
-        ~message="Payment failed. Try again!",
-      )
+      let message = "Payment failed. Try again!"
+      postFailedSubmitResponse(~errortype="confirm_payment_failed", ~message)
+      intentCallback(getFailedSubmitResponse(~errorType="confirm_payment_failed", ~message))
     }
   }
 }

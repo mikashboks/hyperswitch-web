@@ -156,6 +156,7 @@ type wallets = {
   klarna: showType,
   paze: showType,
   samsungPay: showType,
+  mikashboks: showType,
   style: style,
 }
 type business = {name: string}
@@ -449,6 +450,7 @@ let defaultWallets = {
   klarna: Auto,
   paze: Auto,
   samsungPay: Auto,
+  mikashboks: Auto,
   style: defaultStyle,
 }
 let defaultBillingAddress = {
@@ -1404,6 +1406,7 @@ let getWallets = (dict, str, logger) => {
         "klarna",
         "samsungPay",
         "paze",
+        "mikashboks",
       ],
       json,
       "options.wallets",
@@ -1420,6 +1423,9 @@ let getWallets = (dict, str, logger) => {
       paze: getWarningString(json, "paze", "auto", ~logger)->getShowType("options.wallets.paze"),
       samsungPay: getWarningString(json, "samsungPay", "auto", ~logger)->getShowType(
         "options.wallets.samsungPay",
+      ),
+      mikashboks: getWarningString(json, "mikashboks", "auto", ~logger)->getShowType(
+        "options.wallets.mikashboks",
       ),
       style: getStyle(json, "style", logger),
     }

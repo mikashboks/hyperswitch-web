@@ -41,7 +41,7 @@ let localeStrings: LocaleStringTypes.localeStrings = {
   documentTypeLabel: "Doc Type",
   redirectText: "After submitting your order, you will be redirected to securely complete your purchase.",
   bankDetailsText: "After submitting these details, you will get bank account information to make payment. Please make sure to take a note of it.",
-  orPayUsing: "Or pay using",
+  orPayUsing: "Or pay another way",
   addNewCard: "Add credit/debit card",
   useExisitingSavedCards: "Use saved debit/credit cards",
   saveCardDetails: "Save card details",

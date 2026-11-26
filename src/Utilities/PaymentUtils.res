@@ -2,10 +2,25 @@ let paymentMethodListValue = Jotai.atom(PaymentMethodsRecord.defaultList)
 let sdkConfigsValue = Jotai.atom(SdkConfigTypes.defaultSdkConfigValue)
 let paymentManagementListValue = Jotai.atom(UnifiedHelpersV2.defaultPaymentsList)
 
+let mobileMoneySubtypes = ["orange_money", "afrimoney"]
+
+let resolveMobileMoneySubtype = (paymentMethods: array<PaymentMethodsRecord.methods>) => {
+  let enabledSubtypes =
+    paymentMethods
+    ->Array.filter(pm => pm.payment_method === "wallet")
+    ->Array.reduce([], (acc, pm) =>
+      acc->Array.concat(pm.payment_method_types->Array.map(t => t.payment_method_type))
+    )
+  mobileMoneySubtypes
+  ->Array.find(subtype => enabledSubtypes->Array.includes(subtype))
+  ->Option.getOr("orange_money")
+}
+
 let paymentListLookupNew = (
   list: PaymentMethodsRecord.paymentMethodList,
   ~order,
   ~isShowPaypal,
+  ~isShowMikashboks=true,
   ~isShowKlarnaOneClick,
   ~isKlarnaSDKFlow,
   ~paymentMethodListValue: PaymentMethodsRecord.paymentMethodList,
@@ -48,6 +63,10 @@ let paymentListLookupNew = (
     walletToBeDisplayedInTabs->Array.push("paypal")
   }
 
+  if showWalletsWithOtherPaymentMethods && isShowMikashboks {
+    walletToBeDisplayedInTabs->Array.push("mikashboks")
+  }
+
   let requiresGooglePayBillingDetails =
     !collectBillingDetailsFromWalletConnector && !areAllGooglePayRequiredFieldsPrefilled
 
@@ -63,10 +82,15 @@ let paymentListLookupNew = (
   }
 
   pmList->Array.forEach(item => {
-    if walletToBeDisplayedInTabs->Array.includes(item.paymentMethodName) {
+    if mobileMoneySubtypes->Array.includes(item.paymentMethodName) {
+      otherPaymentList->Array.push("mobile_money")->ignore
+    } else if walletToBeDisplayedInTabs->Array.includes(item.paymentMethodName) {
       otherPaymentList->Array.push(item.paymentMethodName)->ignore
     } else if item.methodType == "wallet" {
-      if item.paymentMethodName !== "paypal" || isShowPaypal {
+      if (
+        (item.paymentMethodName !== "paypal" || isShowPaypal) &&
+        (item.paymentMethodName !== "mikashboks" || isShowMikashboks)
+      ) {
         walletsList->Array.push(item.paymentMethodName)->ignore
       }
     } else if item.methodType == "bank_debit" {
@@ -331,6 +355,7 @@ let useGetPaymentMethodList = (
       pList->paymentListLookupNew(
         ~order=paymentOrder,
         ~isShowPaypal,
+        ~isShowMikashboks=optionAtomValue.wallets.mikashboks === Auto,
         ~isShowKlarnaOneClick=optionAtomValue.wallets.klarna === Auto,
         ~isKlarnaSDKFlow,
         ~paymentMethodListValue=pList,
@@ -386,8 +411,7 @@ let useGetPaymentMethodList = (
   }, (
     methodslist,
     paymentMethodOrder,
-    optionAtomValue.wallets.payPal,
-    optionAtomValue.wallets.klarna,
+    optionAtomValue.wallets,
     paymentType,
     showWalletsWithOtherPaymentMethods,
     isKlarnaSDKFlow,
@@ -646,6 +670,11 @@ let useEmitPaymentMethodInfo = (
       if !skipCard {
         emitPaymentMethodInfoWrapper(~paymentMethod="card", ~paymentMethodType="debit")
       }
+    } else if paymentMethodName === "mobile_money" {
+      emitPaymentMethodInfoWrapper(
+        ~paymentMethod="wallet",
+        ~paymentMethodType=resolveMobileMoneySubtype(paymentMethods),
+      )
     } else {
       let finalOptionalPaymentMethodTypeValue =
         paymentMethods
@@ -692,7 +721,10 @@ let checkRenderOrComp = (
   ~isShowOrPayUsing,
   ~isShowOrPayUsingWhileLoading=false,
 ) => {
-  walletOptions->Array.includes("paypal") || isShowOrPayUsing || isShowOrPayUsingWhileLoading
+  walletOptions->Array.includes("paypal") ||
+  walletOptions->Array.includes("mikashboks") ||
+  isShowOrPayUsing ||
+  isShowOrPayUsingWhileLoading
 }
 
 let filterInstallmentPlansByPaymentMethod = (

@@ -523,6 +523,12 @@ let make = (~cardProps, ~expiryProps, ~cvcProps, ~paymentType: CardThemeType.mod
             </RenderIf>
           }}
         </SessionPaymentWrapper>
+      | MobileMoney =>
+        <ReusableReactSuspense
+          loaderComponent={<LoaderPaymentShimmer />} componentName="MobileMoneyGroupLazy">
+          <MobileMoneyGroupLazy />
+        </ReusableReactSuspense>
+      | Mikashboks => <MikashboksExpressButton walletOptions />
       | _ =>
         <ReusableReactSuspense
           loaderComponent={<LoaderPaymentShimmer />} componentName="PaymentMethodsWrapperLazy">

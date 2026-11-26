@@ -114,6 +114,7 @@ type areOneClickWalletsRendered = {
   isPaypal: bool,
   isKlarna: bool,
   isSamsungPay: bool,
+  isMikashboks: bool,
 }
 
 let defaultAreOneClickWalletsRendered = {
@@ -122,6 +123,7 @@ let defaultAreOneClickWalletsRendered = {
   isPaypal: false,
   isKlarna: false,
   isSamsungPay: false,
+  isMikashboks: false,
 }
 
 let areOneClickWalletsRendered = Jotai.atom(defaultAreOneClickWalletsRendered)

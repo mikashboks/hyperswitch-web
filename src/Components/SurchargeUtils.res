@@ -20,6 +20,7 @@ let oneClickWallets = (~localeString: LocaleStringTypes.localeStrings) => [
     displayName: localeString.payment_methods_google_pay,
   },
   {paymentMethodType: "klarna", displayName: localeString.payment_methods_klarna},
+  {paymentMethodType: "mikashboks", displayName: "MiKashBoks"},
 ]
 
 type walletSurchargeDetails = {
@@ -39,6 +40,7 @@ let useSurchargeDetailsForOneClickWallets = (~paymentMethodListValue) => {
       | "paypal" => (areOneClickWalletsRendered.isPaypal, "wallet")
       | "google_pay" => (areOneClickWalletsRendered.isGooglePay, "wallet")
       | "klarna" => (areOneClickWalletsRendered.isKlarna, "pay_later")
+      | "mikashboks" => (areOneClickWalletsRendered.isMikashboks, "wallet")
       | _ => (false, "")
       }
       if isWalletBtnRendered {

@@ -1023,6 +1023,9 @@ let getPaymentMethodType = (paymentMethod, paymentMethodType) =>
 let appendRedirectPaymentMethods = [
   "touch_n_go",
   "momo",
+  "mikashboks",
+  "orange_money",
+  "afrimoney",
   "gcash",
   "kakao_pay",
   "go_pay",
@@ -1100,6 +1103,39 @@ let dynamicPaymentBody = (paymentMethod, paymentMethodType, ~isQrPaymentMethod=f
       ]->Utils.getJsonFromArrayOfJson,
     ),
   ]->appendPaymentExperience(paymentMethodType)
+}
+
+let mobileMoneyPaymentBody = (~paymentMethodType, ~countryCode, ~phoneNumber) => {
+  let walletExperience = appendPaymentMethodExperience(
+    ~paymentMethod="wallet",
+    ~paymentMethodType,
+    ~isQrPaymentMethod=false,
+  )
+  [
+    ("payment_method", "wallet"->JSON.Encode.string),
+    ("payment_method_type", paymentMethodType->JSON.Encode.string),
+    (
+      "payment_method_data",
+      [
+        (
+          "wallet",
+          [(walletExperience, Dict.make()->JSON.Encode.object)]->Utils.getJsonFromArrayOfJson,
+        ),
+        (
+          "billing",
+          [
+            (
+              "phone",
+              [
+                ("country_code", countryCode->JSON.Encode.string),
+                ("number", phoneNumber->JSON.Encode.string),
+              ]->Utils.getJsonFromArrayOfJson,
+            ),
+          ]->Utils.getJsonFromArrayOfJson,
+        ),
+      ]->Utils.getJsonFromArrayOfJson,
+    ),
+  ]
 }
 
 let getPaymentBody = (

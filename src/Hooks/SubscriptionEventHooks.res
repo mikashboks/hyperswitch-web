@@ -196,6 +196,8 @@ let getPaymentMethodAndType = (
     Some(("bank_transfer", paymentMethodName))
   } else if paymentMethodName === "card" {
     Some(("card", "debit"))
+  } else if paymentMethodName === "mobile_money" {
+    Some(("wallet", PaymentUtils.resolveMobileMoneySubtype(paymentMethods)))
   } else {
     let found =
       paymentMethods
